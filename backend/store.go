@@ -1,5 +1,13 @@
 package main
 
+/*
+	This file is designed to encasulate the interation of the server and the database.
+	No other module should connect to the database IOT
+		- Properly manage SQL connections
+		- Maintain DB integrity
+		- Discourage stateful systems
+*/
+
 import (
 	"fmt"
 	"os"
@@ -10,36 +18,58 @@ import (
 
 // Default database configuration for non-production builds
 const (
-	DB_NAME   = "metadb"
-	DB_USER   = "dbadmin"
-	DB_PASS   = "A45189C09"
+	DB_NAME   = "dbtest"
+	DB_USER   = "tester"
+	DB_PASS   = "testpass"
 	DB_HOST   = "localhost"
 	DB_PORT   = "5432"
 	DB_DRIVER = structql.Postgres
 )
 
-func ConnectSQL() (*structql.Connection, error) {
-	logger.Info("Attempting to Connect to SQL Server")
+func InitSQL() error {
+	logger.Info("Attempting to initialize database")
 
-	dbConfig, err := GenerateDBConfig()
+	// Connect to database
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %v", err)
+	}
+	defer conn.Close()
+
+	// Create image_meta table if it doesn't already exist
+	err = conn.CreateTableFromObject("image_meta", Image{})
+	if err != nil {
+		return fmt.Errorf("failed to create image_meta table: %v", err)
+	}
+
+	// Create user_meta table if it doesn't already exist
+	err = conn.CreateTableFromObject("user_meta", User{})
+	if err != nil {
+		return fmt.Errorf("failed to create user_meta table: %v", err)
+	}
+
+	logger.Info("Database successfully initialized")
+
+	return nil
+}
+
+func connectSQL() (*structql.Connection, error) {
+	dbConfig, err := generateDBConfig()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate db config: %v", err)
 	}
 
 	conn, err := structql.Connect(dbConfig)
-	defer conn.Close()
 	if err != nil {
 		return nil, fmt.Errorf("undable to connect to sql db: %v", err)
 	}
-
-	logger.Info("Successfully connected to db.")
 
 	return conn, nil
 }
 
 // GenerateDBConfig assigns appropriate environment variables
 // when environment variables don't exist the defaults for testing are applied
-func GenerateDBConfig() (structql.ConnectionConfig, error) {
+func generateDBConfig() (structql.ConnectionConfig, error) {
 
 	// DBNAME Env Variable -> Name of database
 	dbName := os.Getenv("DB_NAME")
@@ -56,18 +86,18 @@ func GenerateDBConfig() (structql.ConnectionConfig, error) {
 	// DBPASS Env Variable -> Pass for this service's user
 	dbPass := os.Getenv("DB_PASS")
 	if len(dbPass) == 0 {
-		dbPass = DB_HOST
+		dbPass = DB_PASS
 	}
 
 	// DBHOST Env Variable -> Address of server
 	dbHost := os.Getenv("DB_HOST")
-	if len(dbPass) == 0 {
+	if len(dbHost) == 0 {
 		dbHost = DB_HOST
 	}
 
 	// DBHOST Env Variable -> Port of server
 	dbPort := os.Getenv("DB_PORT")
-	if len(dbHost) == 0 {
+	if len(dbPort) == 0 {
 		dbPort = DB_PORT
 	}
 
@@ -81,6 +111,8 @@ func GenerateDBConfig() (structql.ConnectionConfig, error) {
 		Port:     dbPort,
 		Driver:   structql.Postgres,
 	}
+
+	logger.Info("%v", dbConfig)
 
 	return dbConfig, nil
 
