@@ -15,6 +15,8 @@ import (
 
 const (
 	PORT = ":8000"
+
+	IMAGE_DIR = "./tmp"
 )
 
 type PingResp struct {
@@ -88,7 +90,7 @@ func upload(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Error("failed to read file sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - Failed to read file, upload aborted"))
+		w.Write([]byte("500 - Failed to read file, try again later"))
 		return
 	}
 	defer img.Close()
@@ -99,12 +101,12 @@ func upload(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Error("failed to validate file type sending 400: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("400 - Failed to validate file type, upload aborted, ensure the file is correctly formatted as a jpeg (jpg) or png"))
+		w.Write([]byte("400 - Failed to validate file type, ensure the file is correctly formatted as a jpeg (jpg) or png"))
 		return
 	}
 	fileType := http.DetectContentType(buffer)
 
-	// Reset the location of reading to start of the file
+	// Reset the pointer location for writing later
 	img.Seek(0, 0)
 
 	logger.Info("Received For Upload Filename: %v - Size: %v - Type: %v", imgHeader.Filename, imgHeader.Size, fileType)
@@ -127,16 +129,16 @@ func upload(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// ensure storage directory for the user exists
-	err = os.MkdirAll(fmt.Sprintf("./tmp/%v", uid), os.ModePerm)
+	err = os.MkdirAll(fmt.Sprintf("%s/%v", IMAGE_DIR, uid), os.ModePerm)
 	if err != nil {
 		logger.Error("failed to establish image directory: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - Failed to read file, upload aborted"))
+		w.Write([]byte("500 - Failed to read file, try again later"))
 		return
 	}
 
 	// Prepare image meta for SQL storage
-	resp := Image{
+	imageData := Image{
 		Uid:      int32(uid),
 		Filename: imgHeader.Filename,
 		Size:     int32(imgHeader.Size),
@@ -145,18 +147,39 @@ func upload(w http.ResponseWriter, req *http.Request) {
 		Encoding: fileType,
 	}
 
-	// TODO: insert image meta into database to receive image id
-	resp.Id = 1
+	// Insert image data and retrieve unique id
+	imageData.Id, err = AddImageData(imageData)
+	if err != nil {
+		logger.Error("failed to add image meta: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Failed to add image meta, try again later"))
+		return
+	}
 
-	// Generate file reference string with unique file name in the format of ./tmp/UID/ID.ext
-	refStr := fmt.Sprintf("./tmp/%v/%v%v", resp.Uid, resp.Id, filepath.Ext(imgHeader.Filename))
+	// Generate file reference string with unique file name in the format of IMAGE_DIR/UID/ID.ext
+	imageData.Ref = fmt.Sprintf("%s/%v/%v%v", IMAGE_DIR, imageData.Uid, imageData.Id, filepath.Ext(imgHeader.Filename))
+
+	// Update table with dynamic image reference
+	// This is can be extended to support third party storage solutions
+	err = UpdateImageData(imageData)
+	if err != nil {
+		logger.Error("failed to update metadata with image reference: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Failed to update file referece in database, try again later"))
+
+		DeleteImageData(imageData) // Clean DB for unsuccessful update
+
+		return
+	}
 
 	// create file with reference string for writing
-	fileRef, err := os.Create(refStr)
+	fileRef, err := os.Create(imageData.Ref)
 	if err != nil {
 		logger.Error("failed to create file reference: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - Failed to create file reference, upload aborted"))
+		w.Write([]byte("500 - Failed to create file reference, try again later"))
+
+		DeleteImageData(imageData) // Clean DB for unsuccessful update
 		return
 	}
 
@@ -165,15 +188,14 @@ func upload(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Error("failed to save image: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - Failed to save file reference, upload aborted"))
+		w.Write([]byte("500 - Failed to save file reference, try again later"))
+
+		DeleteImageData(imageData) // Clean DB for unsuccessful update
 		return
 	}
 
-	// TODO: update database with saved image
-	resp.Ref = refStr
-
 	// marshal response in json
-	js, err := json.Marshal(resp)
+	js, err := json.Marshal(imageData)
 	if err != nil {
 		logger.Error("failed to marshal json sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)

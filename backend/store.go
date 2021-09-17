@@ -18,6 +18,11 @@ import (
 
 // Default database configuration for non-production builds
 const (
+	// Table Names
+	IMAGE_TABLE = "image_meta"
+	USER_TABLE  = "user_meta"
+
+	// Default DB Configuration
 	DB_NAME   = "dbtest"
 	DB_USER   = "tester"
 	DB_PASS   = "testpass"
@@ -26,6 +31,7 @@ const (
 	DB_DRIVER = structql.Postgres
 )
 
+// InitSQL attempts to connect to the database and generates necessary tables if required
 func InitSQL() error {
 	logger.Info("Attempting to initialize database")
 
@@ -37,13 +43,13 @@ func InitSQL() error {
 	defer conn.Close()
 
 	// Create image_meta table if it doesn't already exist
-	err = conn.CreateTableFromObject("image_meta", Image{})
+	err = conn.CreateTableFromObject(IMAGE_TABLE, Image{})
 	if err != nil {
 		return fmt.Errorf("failed to create image_meta table: %v", err)
 	}
 
 	// Create user_meta table if it doesn't already exist
-	err = conn.CreateTableFromObject("user_meta", User{})
+	err = conn.CreateTableFromObject(USER_TABLE, User{})
 	if err != nil {
 		return fmt.Errorf("failed to create user_meta table: %v", err)
 	}
@@ -53,6 +59,107 @@ func InitSQL() error {
 	return nil
 }
 
+// AddImageMeta inserts a row into the image_meta table and returns the assigned id
+func AddImageData(imgData Image) (int32, error) {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return 0, fmt.Errorf("unable to add image meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	id, err := conn.InsertObject(IMAGE_TABLE, imgData)
+	if err != nil {
+		return 0, fmt.Errorf("unable to add image meta due to insertion error: %v", err)
+	}
+
+	return int32(id), nil
+}
+
+// UpdateImageData accepts an imgData objects and updates the corresponding row to match the parameter
+func UpdateImageData(imgData Image) error {
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to update image meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.UpdateObject(IMAGE_TABLE, imgData)
+	if err != nil {
+		return fmt.Errorf("unable to update image meta: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteImageData deletes the row corresponding to the imageData provided in the func parameter
+func DeleteImageData(imageData Image) error {
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to delete image meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.DeleteObject(IMAGE_TABLE, imageData)
+	if err != nil {
+		return fmt.Errorf("unable to delete image meta: %v", err)
+	}
+
+	return nil
+}
+
+// AddUserMeta inserts a row into the image_meta table and returns the assigned id
+func AddUserData(userData User) (int32, error) {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return 0, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	id, err := conn.InsertObject(USER_TABLE, userData)
+	if err != nil {
+		return 0, fmt.Errorf("unable to add user meta due to insertion error: %v", err)
+	}
+
+	return int32(id), nil
+}
+
+// UpdateUserMeta updates the corresponding row into the user_meta table according to the provided parameter
+func UpdateUserData(userData User) error {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to update user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.UpdateObject(USER_TABLE, userData)
+	if err != nil {
+		return fmt.Errorf("unable to update user meta: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteUserMeta deletes the corresponding row from the user_meta tables
+func DeleteUserData(userData User) error {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to delete user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.DeleteObject(USER_TABLE, userData)
+	if err != nil {
+		return fmt.Errorf("unable to delete user meta: %v", err)
+	}
+
+	return nil
+}
+
+// connectSQL returns structql Connection this must be closed after the the database action is done
 func connectSQL() (*structql.Connection, error) {
 	dbConfig, err := generateDBConfig()
 	if err != nil {
@@ -111,8 +218,6 @@ func generateDBConfig() (structql.ConnectionConfig, error) {
 		Port:     dbPort,
 		Driver:   structql.Postgres,
 	}
-
-	logger.Info("%v", dbConfig)
 
 	return dbConfig, nil
 
