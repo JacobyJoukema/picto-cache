@@ -12,10 +12,13 @@ There are three ways to interact with this system:
 
 ## Design
 
+
 ## References
 The following references were utilized in order to develop key components of this program
 
 https://medium.com/@jacoby.joukema/managing-your-sql-database-in-go-with-structql-74f4ebafc062 - Guide for using StructQL (written by me)
 https://freshman.tech/file-upload-golang/ - Parsing multipart forms in Go with file uploads
 https://golangcode.com/get-the-content-type-of-file/ - Identify file type in Go
+https://tutorialedge.net/golang/authenticating-golang-rest-api-with-jwts/ - JWT authentication in Golang
+https://dev.to/techschoolguru/how-to-securely-store-passwords-3cg7 - Password hashing and storage techniques for go
 

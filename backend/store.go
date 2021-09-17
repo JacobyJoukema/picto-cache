@@ -16,11 +16,12 @@ import (
 	"github.com/inflowml/structql"
 )
 
-// Default database configuration for non-production builds
+// Default database configuration for non-production deployments
 const (
 	// Table Names
 	IMAGE_TABLE = "image_meta"
 	USER_TABLE  = "user_meta"
+	PASS_TABLE  = "user_pass"
 
 	// Default DB Configuration
 	DB_NAME   = "dbtest"
@@ -50,6 +51,12 @@ func InitSQL() error {
 
 	// Create user_meta table if it doesn't already exist
 	err = conn.CreateTableFromObject(USER_TABLE, User{})
+	if err != nil {
+		return fmt.Errorf("failed to create user_meta table: %v", err)
+	}
+
+	// Create user_pass table if it doesn't already exist
+	err = conn.CreateTableFromObject(PASS_TABLE, UserPassword{})
 	if err != nil {
 		return fmt.Errorf("failed to create user_meta table: %v", err)
 	}
@@ -157,6 +164,108 @@ func DeleteUserData(userData User) error {
 	}
 
 	return nil
+}
+
+// AddUserMeta inserts a row into the image_meta table and returns the assigned id
+func AddUserPass(pass UserPassword) (int32, error) {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return 0, fmt.Errorf("unable to add user pass to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	id, err := conn.InsertObject(PASS_TABLE, pass)
+	if err != nil {
+		return 0, fmt.Errorf("unable to add user pass due to insertion error: %v", err)
+	}
+
+	return int32(id), nil
+}
+
+// UpdateUserMeta updates the corresponding row into the user_meta table according to the provided parameter
+func UpdateUserPass(pass UserPassword) error {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to update user pass to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.UpdateObject(PASS_TABLE, pass)
+	if err != nil {
+		return fmt.Errorf("unable to update user pass: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteUserMeta deletes the corresponding row from the user_meta tables
+func DeleteUserPass(pass UserPassword) error {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	err = conn.DeleteObject(PASS_TABLE, pass)
+	if err != nil {
+		return fmt.Errorf("unable to delete user pass: %v", err)
+	}
+
+	return nil
+}
+
+func GetHashedPass(email string) (string, error) {
+	conn, err := connectSQL()
+	if err != nil {
+		return "", fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	userRows, err := conn.SelectFromWhere(User{}, USER_TABLE, fmt.Sprintf("email='%s'", email))
+	if err != nil {
+		return "", fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+	}
+
+	if len(userRows) != 1 {
+		return "", fmt.Errorf("cannot find email")
+	}
+
+	user := userRows[0].(User)
+
+	passRows, err := conn.SelectFromWhere(UserPassword{}, PASS_TABLE, fmt.Sprintf("id=%v", user.Uid))
+	if err != nil {
+		return "", fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+	}
+
+	if len(userRows) != 1 {
+		return "", fmt.Errorf("cannot find hashed pass")
+	}
+
+	pass := passRows[0].(UserPassword)
+
+	return pass.HashedPass, nil
+}
+
+// UniqueEmail queries the user_table in order to determine if an email is unique
+func UniqueEmail(email string) (bool, error) {
+	conn, err := connectSQL()
+	if err != nil {
+		return false, fmt.Errorf("unable to connect to database: %v", err)
+	}
+	defer conn.Close()
+
+	users, err := conn.SelectFromWhere(User{}, USER_TABLE, fmt.Sprintf("email='%s'", email))
+	if err != nil {
+		return false, fmt.Errorf("unable to query user table: %v", err)
+	}
+	if len(users) > 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // connectSQL returns structql Connection this must be closed after the the database action is done
