@@ -35,10 +35,18 @@ type Image struct {
 	Id       int32  `json:"id" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
 	Uid      int32  `json:"uid" sql:"uid"`
 	Filename string `json:"name" sql:"filename"`
+	// UploadDate Expansion opportunity
 	Ref      string `json:"ref" sql:"ref"`
 	Size     int32  `json:"size" sql:"size"`
 	Encoding string `json:"encoding" sql:"encoding"`
 	Hidden   bool   `json:"hidden" sql:"hidden"`
+	// Rating Expansion opportunity
+	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
+}
+
+type ImageQuery struct {
+	Ids   []int32 `json:"id"` // null id field will return all owned imag
+	Owned bool    `json:"owned"`
 }
 
 // Used for managing User metadata tagged for json and sql serialization
@@ -57,17 +65,34 @@ type UserPassword struct {
 	HashedPass string `sql:"hashed_pass"`
 }
 
+type JWTClaims struct {
+	Email string
+	Uid   int
+	jwt.StandardClaims
+}
+
 // serve starts the http server and listens on port assigned above
 func serve() error {
 
 	router := mux.NewRouter()
 
-	router.HandleFunc("/ping", ping)
-	router.HandleFunc("/upload", upload)
-	router.HandleFunc("/register", register)
-	router.HandleFunc("/auth", auth)
+	router.HandleFunc("/ping", ping).Methods("GET")
+	router.HandleFunc("/register", register).Methods("POST")
+	router.HandleFunc("/auth", auth).Methods("GET")
 
-	logger.Info("Initiating Server")
+	router.HandleFunc("/image", addImage).Methods("POST")
+	router.HandleFunc("/image", delImage).Methods("DELETE")
+	router.HandleFunc("/image/{id}", getImage).Methods("GET")
+	router.HandleFunc("/image", updateImage).Methods("PUT")
+
+	router.HandleFunc("/image/user/{page}", getImageMeta).Methods("GET")
+	router.HandleFunc("/image/user", getImageMeta).Methods("GET")
+	router.HandleFunc("/image/public/{page}", getImageMeta).Methods("GET")
+	router.HandleFunc("/image/public/", getImageMeta).Methods("GET")
+
+	http.Handle("/", router)
+
+	logger.Info("Initiating HTTP Server")
 	return (http.ListenAndServe(PORT, router))
 }
 
@@ -243,19 +268,21 @@ func auth(w http.ResponseWriter, req *http.Request) {
 }
 
 func generateJWT(uid int, email string) (string, int64, error) {
-	token := jwt.New(jwt.SigningMethodHS256)
 
 	// Set expiration to 30 minutes from login
 	exp := time.Now().Add(time.Minute * 30).Unix()
 
-	claims := token.Claims.(jwt.MapClaims)
-
-	claims["authorized"] = true
-	claims["client"] = uid
-	claims["email"] = email
-	claims["exp"] = exp
-
+	claims := &JWTClaims{
+		Email: email,
+		Uid:   uid,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: exp,
+		},
+	}
 	signingKey := getSigningKey()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenStr, err := token.SignedString(signingKey)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to sign jwt: %v", err)
@@ -277,20 +304,54 @@ func getSigningKey() []byte {
 	return signingKey
 }
 
-// upload accepts multipart form-data with image metadata
-// this function checks to ensure the image is of type jpg or png
-func upload(w http.ResponseWriter, req *http.Request) {
+// authRequest accepts the http request and parses the attached jwt token
+// and returns the JWTClaims for the assigned jwt
+// stored in the assigned cookie in order to ensure the request is authorized
+func authRequest(req *http.Request) (JWTClaims, error) {
+	cookie, err := req.Cookie("token")
+	if err != nil {
+		return JWTClaims{}, fmt.Errorf("unable to find token, unauthorized: %v", err)
+	}
 
-	// Ensure request method is acceptable
-	if req.Method != "POST" {
-		logger.Error("%v request submitted to upload endpoint", req.Method)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("400 - This endpoint only accepts post requests"))
+	claims := &JWTClaims{}
+
+	token, err := jwt.ParseWithClaims(cookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
+		return getSigningKey(), nil
+	})
+	if err != nil || !token.Valid {
+		return JWTClaims{}, fmt.Errorf("failed to parse jwt/invalid token, unauthorized")
+	}
+
+	return *claims, nil
+}
+
+// image routes the request to the image endpoint depending on the request type
+func getImage(w http.ResponseWriter, req *http.Request) {
+	claims, err := authRequest(req)
+	if err != nil {
+		logger.Error("Unauthorized request to upload sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized request, ensure you sign in and obtain the jwt auth token"))
+		return
+	}
+
+	logger.Info("%v", claims.Email)
+}
+
+// addImage accepts multipart form-data with image metadata
+// this function checks to ensure the image is of type jpg or png
+func addImage(w http.ResponseWriter, req *http.Request) {
+
+	claims, err := authRequest(req)
+	if err != nil {
+		logger.Error("Unauthorized request to upload sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized request, ensure you sign in and obtain the jwt auth token"))
 		return
 	}
 
 	// attempt to retrieve file from form
-	img, imgHeader, err := req.FormFile("img")
+	img, imgHeader, err := req.FormFile("image")
 	if err != nil {
 		logger.Error("failed to read file sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -322,13 +383,12 @@ func upload(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// TODO: replace with deserialization of jwt to auth user
-	uid := 1
+	uid := claims.Uid
 
 	// default to hidden unless explicitly false
 	hidden := true
 	if req.FormValue("hidden") == "false" {
-		hidden = true
+		hidden = false
 	}
 
 	// ensure storage directory for the user exists
@@ -409,4 +469,64 @@ func upload(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
 	logger.Info("Successfully uploaded (Filename: %v - Size: %v - Type: %v)", imgHeader.Filename, imgHeader.Size, fileType)
+}
+
+// delImage accepts multipart form-data with image metadata and deletes the appropriate
+// image given the requesting person has the authorization to do so
+func delImage(w http.ResponseWriter, req *http.Request) {
+
+	// Authenticate user
+	claims, err := authRequest(req)
+	if err != nil {
+		logger.Error("Unauthorized request to upload sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized request, ensure you sign in and obtain the jwt auth token"))
+		return
+	}
+
+	logger.Info(claims.Id)
+}
+
+// getImage accepts multipart form-data with image metadata and deletes the appropriate
+// image given the requesting person has the authorization to do so
+func getImageMeta(w http.ResponseWriter, req *http.Request) {
+
+	// Authenticate user
+	claims, err := authRequest(req)
+	if err != nil {
+		logger.Error("Unauthorized request to upload sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized request, ensure you sign in and obtain the jwt auth token"))
+		return
+	}
+
+	// Ensure request method is acceptable
+	if req.Method != "GET" {
+		logger.Error("%v request submitted to register endpoint", req.Method)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - This endpoint only accepts post requests"))
+		return
+	}
+
+	logger.Info(req.RequestURI)
+
+	logger.Info("%v", claims.Uid)
+
+}
+
+// getImage accepts multipart form-data with image metadata and deletes the appropriate
+// image given the requesting person has the authorization to do so
+func updateImage(w http.ResponseWriter, req *http.Request) {
+
+	// Authenticate user
+	claims, err := authRequest(req)
+	if err != nil {
+		logger.Error("Unauthorized request to upload sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized request, ensure you sign in and obtain the jwt auth token"))
+		return
+	}
+
+	logger.Info("%v", claims.Uid)
+
 }

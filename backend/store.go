@@ -23,6 +23,9 @@ const (
 	USER_TABLE  = "user_meta"
 	PASS_TABLE  = "user_pass"
 
+	// Request Constants
+	PAGE_SIZE = 50 // Retrieve no more than 50 responses at a time
+
 	// Default DB Configuration
 	DB_NAME   = "dbtest"
 	DB_USER   = "tester"
@@ -113,6 +116,40 @@ func DeleteImageData(imageData Image) error {
 	}
 
 	return nil
+}
+
+// GetImageMeta returns a
+func GetImageMeta(uid int32, pub bool, page int) ([]Image, error) {
+
+	// Connect to database
+	conn, err := connectSQL()
+	if err != nil {
+		return []Image{}, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	// Build query string based on parameters
+	query := ""
+	if pub {
+		query = fmt.Sprintf("hidden=false AND uid!=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
+	} else {
+		query = fmt.Sprintf("uid=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
+	}
+
+	// Query database for requested image meta
+	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, query)
+	if err != nil {
+		return []Image{}, fmt.Errorf("unable to retrieve metadata")
+	}
+
+	// Cast dbReturn to array of images
+	images := []Image{}
+	for _, image := range dbReturn {
+		images = append(images, image.(Image))
+	}
+
+	return images, nil
+
 }
 
 // AddUserMeta inserts a row into the image_meta table and returns the assigned id
