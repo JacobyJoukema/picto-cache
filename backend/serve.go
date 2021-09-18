@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,19 +77,20 @@ func serve() error {
 
 	router := mux.NewRouter()
 
+	// Basic service endpoints
 	router.HandleFunc("/ping", ping).Methods("GET")
 	router.HandleFunc("/register", register).Methods("POST")
 	router.HandleFunc("/auth", auth).Methods("GET")
 
+	// Basic image management endpoints
 	router.HandleFunc("/image", addImage).Methods("POST")
 	router.HandleFunc("/image", delImage).Methods("DELETE")
-	router.HandleFunc("/image/{id}", getImage).Methods("GET")
 	router.HandleFunc("/image", updateImage).Methods("PUT")
 
-	router.HandleFunc("/image/user/{page}", getImageMeta).Methods("GET")
-	router.HandleFunc("/image/user", getImageMeta).Methods("GET")
-	router.HandleFunc("/image/public/{page}", getImageMeta).Methods("GET")
-	router.HandleFunc("/image/public/", getImageMeta).Methods("GET")
+	// Image data endpoints
+	router.HandleFunc("/image/{id:[0-9]+}", getImage).Methods("GET")
+	router.HandleFunc("/image/{pub}", getImageMeta).Queries("page", "{page:[0-9]+}").Methods("GET")
+	router.HandleFunc("/image/{pub}", getImageMeta).Methods("GET")
 
 	http.Handle("/", router)
 
@@ -500,17 +502,37 @@ func getImageMeta(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Ensure request method is acceptable
-	if req.Method != "GET" {
-		logger.Error("%v request submitted to register endpoint", req.Method)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("400 - This endpoint only accepts post requests"))
+	vars := mux.Vars(req)
+	logger.Info("Pub: %v - Page: %T", vars["pub"], vars["page"])
+
+	// Check pattern to ensure it is valid
+	if !(vars["pub"] == "public" || vars["pub"] == "user") {
+		logger.Error("Bad url pattern for image meta request sending 404 not found")
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	logger.Info(req.RequestURI)
+	// Determine request type
+	public := true
+	if vars["pub"] == "user" {
+		public = false
+	}
 
-	logger.Info("%v", claims.Uid)
+	// Determine page
+	page, err := strconv.Atoi(vars["page"])
+	// unable to parse default to 0
+	if err != nil {
+		page = 0
+	}
+
+	imageMeta, err := GetImageMeta(int32(claims.Uid), public, page)
+	if err != nil {
+		logger.Error("Failed to retrieve image meta sending 500")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - failed to retrieve image meta, try again later"))
+	}
+
+	logger.Info("%v", imageMeta)
 
 }
 

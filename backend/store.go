@@ -136,6 +136,7 @@ func GetImageMeta(uid int32, pub bool, page int) ([]Image, error) {
 		query = fmt.Sprintf("uid=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
 	}
 
+	logger.Info("Query: %s", query)
 	// Query database for requested image meta
 	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, query)
 	if err != nil {
