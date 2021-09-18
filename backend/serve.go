@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
@@ -176,7 +177,21 @@ func register(w http.ResponseWriter, req *http.Request) {
 
 	logger.Info("UID: %v - UID PASS: %v", user.Uid, uid)
 
-	// TDOD GenerateJWT Token and return as cookie
+	// Generate and set JWT
+	token, exp, err := generateJWT(int(user.Uid), user.Email)
+	if err != nil {
+		logger.Error("Failed to generate jwt, sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized, unable to generate valid token"))
+		return
+	}
+
+	// Set JWT Cookie with the name token
+	http.SetCookie(w, &http.Cookie{
+		Name:    "token",
+		Value:   token,
+		Expires: time.Unix(exp, 0),
+	})
 
 	logger.Info("Successfully registered account Uid: %v - Email: %v - Name: %v %v", user.Uid, user.Email, user.Firstname, user.Lastname)
 }
@@ -192,7 +207,7 @@ func auth(w http.ResponseWriter, req *http.Request) {
 
 	email, password, _ := req.BasicAuth()
 
-	hashedPass, err := GetHashedPass(email)
+	hashedPass, user, err := GetHashedPass(email)
 	if err != nil {
 		logger.Error("Unable to retrieve hashed password, sending 401")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -209,23 +224,44 @@ func auth(w http.ResponseWriter, req *http.Request) {
 	}
 
 	logger.Info("Successfull login for user: %v", email)
-	//TODO generateJWT
 
+	// Generate and set JWT
+	token, exp, err := generateJWT(int(user.Uid), user.Email)
+	if err != nil {
+		logger.Error("Failed to generate jwt, sending 401")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized, unable to generate valid token"))
+		return
+	}
+
+	// Set JWT Cookie with the name token
+	http.SetCookie(w, &http.Cookie{
+		Name:    "token",
+		Value:   token,
+		Expires: time.Unix(exp, 0),
+	})
 }
 
-func generateJWT(uid int, email string) (string, error) {
+func generateJWT(uid int, email string) (string, int64, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
+
+	// Set expiration to 30 minutes from login
+	exp := time.Now().Add(time.Minute * 30).Unix()
 
 	claims := token.Claims.(jwt.MapClaims)
 
 	claims["authorized"] = true
 	claims["client"] = uid
 	claims["email"] = email
+	claims["exp"] = exp
 
-	//jwt.SigningMethod.Sign()
-	// claims := token.Claims
+	signingKey := getSigningKey()
+	tokenStr, err := token.SignedString(signingKey)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to sign jwt: %v", err)
+	}
 
-	return "", nil
+	return tokenStr, exp, err
 }
 
 // getSigningKey retrievs the secret key from the SIGNING_KEY environent variable

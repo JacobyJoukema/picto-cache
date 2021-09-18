@@ -217,36 +217,36 @@ func DeleteUserPass(pass UserPassword) error {
 	return nil
 }
 
-func GetHashedPass(email string) (string, error) {
+func GetHashedPass(email string) (string, User, error) {
 	conn, err := connectSQL()
 	if err != nil {
-		return "", fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
+		return "", User{}, fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
 	}
 	defer conn.Close()
 
 	userRows, err := conn.SelectFromWhere(User{}, USER_TABLE, fmt.Sprintf("email='%s'", email))
 	if err != nil {
-		return "", fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+		return "", User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
 	}
 
 	if len(userRows) != 1 {
-		return "", fmt.Errorf("cannot find email")
+		return "", User{}, fmt.Errorf("cannot find email")
 	}
 
 	user := userRows[0].(User)
 
 	passRows, err := conn.SelectFromWhere(UserPassword{}, PASS_TABLE, fmt.Sprintf("id=%v", user.Uid))
 	if err != nil {
-		return "", fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+		return "", User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
 	}
 
 	if len(userRows) != 1 {
-		return "", fmt.Errorf("cannot find hashed pass")
+		return "", User{}, fmt.Errorf("cannot find hashed pass")
 	}
 
 	pass := passRows[0].(UserPassword)
 
-	return pass.HashedPass, nil
+	return pass.HashedPass, user, nil
 }
 
 // UniqueEmail queries the user_table in order to determine if an email is unique
