@@ -37,12 +37,12 @@ type PingResp struct {
 type Image struct {
 	Id       int32  `json:"id" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
 	Uid      int32  `json:"uid" sql:"uid"`
-	Filename string `json:"name" sql:"filename"`
-	// UploadDate Expansion opportunity
+	Title    string `json:"title" sql:"title"`
 	Ref      string `json:"ref" sql:"ref"`
 	Size     int32  `json:"size" sql:"size"`
 	Encoding string `json:"encoding" sql:"encoding"`
 	Hidden   bool   `json:"hidden" sql:"hidden"`
+	// UploadDate Expansion opportunity
 	// Rating Expansion opportunity
 	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
 }
@@ -399,6 +399,8 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("400 - Failed to validate file type, ensure the file is correctly formatted as a jpeg (jpg) or png"))
 		return
 	}
+
+	// Read enough of file to determine type
 	fileType := http.DetectContentType(buffer)
 
 	// Reset the pointer location for writing later
@@ -412,6 +414,9 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("400 - Failed to upload, please use multipart form data with an image of type jpeg (jpg) or png"))
 		return
 	}
+
+	// Generate file extension based on data type
+	fileExt := strings.Split(fileType, "/")[1]
 
 	uid := claims.Uid
 
@@ -430,10 +435,19 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Determine if filename exists
+	title := req.FormValue("title")
+	if len(title) == 0 {
+		title = imgHeader.Filename
+	}
+
+	// Manually assign extension even if one is already there
+	title = fmt.Sprintf("%s.%s", strings.Split(title, ".")[0], fileExt)
+
 	// Prepare image meta for SQL storage
 	imageData := Image{
 		Uid:      int32(uid),
-		Filename: imgHeader.Filename,
+		Title:    title,
 		Size:     int32(imgHeader.Size),
 		Ref:      "", // placeholder reference for update after id is assigned to ensure unique filename
 		Hidden:   hidden,
@@ -456,7 +470,7 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Generate file reference string with unique file name in the format of IMAGE_DIR/UID/ID.ext
-	imageData.Ref = fmt.Sprintf("%s/%s/%v/%v%v", refUrl, IMAGE_DIR, imageData.Uid, imageData.Id, filepath.Ext(imgHeader.Filename))
+	imageData.Ref = fmt.Sprintf("%s/%s/%v/%v.%v", refUrl, IMAGE_DIR, imageData.Uid, imageData.Id, fileExt)
 
 	// Update table with dynamic image reference
 	// This is can be extended to support third party storage solutions
@@ -472,7 +486,7 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Generate local file reference string
-	fileRefStr := fmt.Sprintf("./%s/%v/%v%v", IMAGE_DIR, imageData.Uid, imageData.Id, filepath.Ext(imgHeader.Filename))
+	fileRefStr := fmt.Sprintf("./%s/%v/%v.%v", IMAGE_DIR, imageData.Uid, imageData.Id, fileExt)
 
 	// create file with reference string for writing
 	fileRef, err := os.Create(fileRefStr)
@@ -507,7 +521,7 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
-	logger.Info("Successfully uploaded (Filename: %v - Size: %v - Type: %v)", imgHeader.Filename, imgHeader.Size, fileType)
+	logger.Info("Successfully uploaded (Title: %v - Size: %v - Type: %v)", title, imgHeader.Size, fileType)
 }
 
 // delImage accepts multipart form-data with image metadata and deletes the appropriate
@@ -537,6 +551,15 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Ensure there is no uid miss match
+	uidVal, err := strconv.Atoi(vars["uid"])
+	if uidVal != int(imageMeta.Uid) {
+		logger.Error("uid miss match when attempting to delete image sending 400")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Uid mismatch ensure you are using the correct image reference"))
+		return
+	}
+
 	// Ensure user has access permissions
 	if claims.Uid != int(imageMeta.Uid) {
 		logger.Error("unauthorized user attempting to delete image")
@@ -563,7 +586,7 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Error("failed to delete image data, clean orphaned files via automated data integrity check: %v", err)
 	} else {
-		logger.Info("Successfully deleted image: %v", imageMeta.Uid)
+		logger.Info("Successfully deleted image: %v", imageMeta.Id)
 	}
 
 	return
