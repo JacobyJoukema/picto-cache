@@ -137,7 +137,7 @@ func GetImageMeta(id int32) (Image, error) {
 
 	// Failed to retrieve
 	if len(dbReturn) != 1 {
-		return Image{}, fmt.Errorf("failed to find any data with the given id")
+		return Image{}, fmt.Errorf("404 - Not found")
 	}
 
 	// Cast and return image at 0 index

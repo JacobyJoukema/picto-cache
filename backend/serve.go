@@ -86,11 +86,11 @@ func serve() error {
 
 	// Basic image management endpoints
 	router.HandleFunc("/image", addImage).Methods("POST")
-	router.HandleFunc("/image", delImage).Methods("DELETE")
 	router.HandleFunc("/image", updateImage).Methods("PUT")
 
 	// Image data endpoints
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", getImage).Methods("GET")
+	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", delImage).Methods("DELETE")
 	router.HandleFunc("/image/{pub}", imageMetaRequest).Queries("page", "{page:[0-9]+}").Methods("GET")
 	router.HandleFunc("/image/{pub}", imageMetaRequest).Methods("GET")
 
@@ -316,7 +316,7 @@ func authRequest(req *http.Request) (JWTClaims, error) {
 	return *claims, nil
 }
 
-// image routes the request to the image endpoint depending on the request type
+// getImage returns the image defined in the url parameters if the user is authorized to view it
 func getImage(w http.ResponseWriter, req *http.Request) {
 
 	// Authorize request
@@ -328,32 +328,28 @@ func getImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Parse request
 	vars := mux.Vars(req)
 
-	// Validate completeness of request
-	if len(vars["uid"]) == 0 || len(vars["fileId"]) == 0 {
-		logger.Error("Incomplete image request sending 400: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("400 - Bad request, url parameters incomplete structure is /image/{user id}/{file id}.ext"))
-		return
-	}
-
-	// Parse file id and convert to int
-	id, err := strconv.Atoi(strings.TrimSuffix(vars["fileId"], filepath.Ext(vars["fileId"])))
+	// validate url parameters and retrieve imageMeta
+	// returns a 404 if data cannot be found in the db otherwise assumes bad request
+	imageMeta, err := validateVars(vars)
 	if err != nil {
-		logger.Error("Unable to parse file id sending 400: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("400 - Bad request, url parameters incomplete structure is /image/{user id}/{file id}.ext"))
-		return
+		if err != nil {
+			logger.Error("Failed to validate vars sending 400: %v", err)
+			if strings.Contains(err.Error(), "404 - Not found") {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte("404 - Not found, no image with that information available"))
+				return
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("400 - Bad request unable to parse url parameters"))
+			return
+		}
 	}
 
-	// Retreive image meta
-	imageMeta, err := GetImageMeta(int32(id))
-
-	// Validate user has access permissions
-	if imageMeta.Hidden == true && claims.Uid != int(imageMeta.Uid) {
-		logger.Error("Other user attempting to access private image")
+	// Ensure user has access permissions
+	if claims.Uid != int(imageMeta.Uid) {
+		logger.Error("unauthorized user attempting to delete image")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - Unauthorized, this file is private and you do not have access"))
 		return
@@ -369,6 +365,7 @@ func getImage(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", imageMeta.Encoding)
 	w.Write(fileBytes)
+	return
 }
 
 // addImage accepts multipart form-data with image metadata
@@ -516,7 +513,6 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 // delImage accepts multipart form-data with image metadata and deletes the appropriate
 // image given the requesting person has the authorization to do so
 func delImage(w http.ResponseWriter, req *http.Request) {
-
 	// Authenticate user
 	claims, err := authRequest(req)
 	if err != nil {
@@ -526,7 +522,51 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Info(claims.Id)
+	vars := mux.Vars(req)
+	// validate url parameters and retrieve imageMeta
+	imageMeta, err := validateVars(vars)
+	if err != nil {
+		logger.Error("Failed to validate vars sending 400: %v", err)
+		if strings.Contains(err.Error(), "404 - Not found") {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("404 - Not found, no image with that information available"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Bad request unable to parse url parameters"))
+		return
+	}
+
+	// Ensure user has access permissions
+	if claims.Uid != int(imageMeta.Uid) {
+		logger.Error("unauthorized user attempting to delete image")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized, you do not have permissions to modify this image"))
+		return
+	}
+
+	// Delete meta from database
+	err = DeleteImageData(imageMeta)
+	if err != nil {
+		logger.Error("failed to delete image from database sending 500: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Unable to delete image from database, try again later"))
+		return
+	}
+
+	// Delete file from storage
+	fileRef := fmt.Sprintf("./%s/%s/%s", IMAGE_DIR, vars["uid"], vars["fileId"])
+	err = os.Remove(fileRef)
+	// Orphaned file is ok to leave as database entry is already deleted
+	// Automated data integrity checks or manual removal is recommended
+	// This will look like a successfull deletion from the users perspective
+	if err != nil {
+		logger.Error("failed to delete image data, clean orphaned files via automated data integrity check: %v", err)
+	} else {
+		logger.Info("Successfully deleted image: %v", imageMeta.Uid)
+	}
+
+	return
 }
 
 // getImage accepts multipart form-data with image metadata and deletes the appropriate
@@ -570,6 +610,7 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 		logger.Error("Failed to retrieve image meta sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("500 - failed to retrieve image meta, try again later"))
+		return
 	}
 
 	logger.Info("%v", imageMeta)
@@ -580,6 +621,7 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 		logger.Error("Failed to marshal image meta sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("500 - failed to marshal response, try again later"))
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -602,4 +644,26 @@ func updateImage(w http.ResponseWriter, req *http.Request) {
 
 	logger.Info("%v", claims.Uid)
 
+}
+
+func validateVars(vars map[string]string) (Image, error) {
+
+	// Validate completeness of request
+	if len(vars["uid"]) == 0 || len(vars["fileId"]) == 0 {
+		return Image{}, fmt.Errorf("incomplete image request, null parameters")
+	}
+
+	// Parse file id and convert to int
+	id, err := strconv.Atoi(strings.TrimSuffix(vars["fileId"], filepath.Ext(vars["fileId"])))
+	if err != nil {
+		return Image{}, fmt.Errorf("unable to parse file id: %v", err)
+	}
+
+	// Retreive image meta
+	imageMeta, err := GetImageMeta(int32(id))
+	if err != nil {
+		return Image{}, fmt.Errorf("unable to retreive image meta from database: %v", err)
+	}
+
+	return imageMeta, nil
 }
