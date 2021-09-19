@@ -118,8 +118,34 @@ func DeleteImageData(imageData Image) error {
 	return nil
 }
 
-// GetImageMeta returns a
-func GetImageMeta(uid int32, pub bool, page int) ([]Image, error) {
+// GetImageMeta accepts an image id and returns a single image interface that corresponds to the request.
+// This function will return an error if it is unable to retrieve an image with the given id
+func GetImageMeta(id int32) (Image, error) {
+
+	// Connect to database
+	conn, err := connectSQL()
+	if err != nil {
+		return Image{}, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	// Query database for requested image meta
+	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, fmt.Sprintf("id=%v", id))
+	if err != nil {
+		return Image{}, fmt.Errorf("unable to retrieve metadata: %v", err)
+	}
+
+	// Failed to retrieve
+	if len(dbReturn) != 1 {
+		return Image{}, fmt.Errorf("failed to find any data with the given id")
+	}
+
+	// Cast and return image at 0 index
+	return dbReturn[0].(Image), nil
+}
+
+// ImageMetaQuery accepts query parameters and returns an array of image interfaces
+func ImageMetaQuery(uid int32, pub bool, page int) ([]Image, error) {
 
 	// Connect to database
 	conn, err := connectSQL()
@@ -136,11 +162,10 @@ func GetImageMeta(uid int32, pub bool, page int) ([]Image, error) {
 		query = fmt.Sprintf("uid=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
 	}
 
-	logger.Info("Query: %s", query)
 	// Query database for requested image meta
 	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, query)
 	if err != nil {
-		return []Image{}, fmt.Errorf("unable to retrieve metadata")
+		return []Image{}, fmt.Errorf("unable to retrieve metadata: %v", err)
 	}
 
 	// Cast dbReturn to array of images
