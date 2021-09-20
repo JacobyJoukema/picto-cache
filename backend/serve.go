@@ -115,7 +115,7 @@ func serve() error {
 		"title", "{title}",
 		"encoding", "{encoding}",
 		"shareable", "{shareable)").Methods("GET")
-	router.HandleFunc("/image/meta", imageMetaRequest).Methods("GET")
+	router.HandleFunc("/image/meta", imageMetaRequest).Methods("GET", "OPTIONS")
 
 	http.Handle("/", router)
 

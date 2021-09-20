@@ -218,6 +218,7 @@ paths:
       summary: Retrieves image metadata based on supplied parameters and user permission all parameters are optional. When query parameters are not set returns all image metadata belonging to the user
       security:
         - jwt: []
+        - bearer: []
       parameters:
         - in: query
           name: id
