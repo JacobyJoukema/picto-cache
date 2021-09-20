@@ -1,0 +1,358 @@
+openapi: 3.0.0
+info:
+  description: API For Shopify 2022 Winter Backend Intern Position by Jacoby Joukema
+  version: 1.0.0-oas3
+  title: Picto Cache API
+  contact:
+    email: jacobyjoukema@gmail.com
+  license:
+    name: MIT License
+    url: https://github.com/JacobyJoukema/picto-cache/blob/main/LICENSE
+tags:
+  - name: Open
+    description: Open calls that do not require valid jwt
+  - name: JWT
+    description: Closed calls that require authenticaion via jwt
+paths:
+  /ping:
+    get:
+      tags:
+        - Open
+      summary: Test server connectivity
+      operationId: ping
+      description: This open endpoint allows clients to test availability of the server without authentication.
+      responses:
+        '200':
+          description: responsive server call
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResp'
+        '400':
+          description: bad input parameter
+        '405':
+          description: bad request method
+              
+  /register:
+    post:
+      tags:
+        - Open
+      summary: Register a Picto Cache account
+      operationId: register
+      description: This open endpoint allows clients to register an account with the required parameters
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: 
+              $ref: '#/components/schemas/RegisterReq'
+      responses:
+        '200':
+          description: registration successfull, jwt token return via cookie
+        '400':
+          description: bad input parameters, email may already be registered
+  /auth:
+    get:
+      tags:
+        - Open
+      summary: Authenticate using basic auth
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: authentication successfull, jwt token return via cookie
+        '401':
+          description: unauthorized, check credentials and try again
+  /image:
+    post:
+      tags:
+        - JWT
+      summary: Upload an image to the repository
+      security:
+        - jwt: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateImage'
+            encoding:
+              image:
+                contentType: image/png, image/jpeg
+      responses:
+        '200':
+          description: image upload successfull
+        '400':
+          description: bad request
+        '401':
+          description: unauthorized, must have valid auth token
+        '500':
+          description: internal server error, unable to upload
+  /image/{uid}/{img}:
+    get:
+      tags:
+        - JWT
+      summary: Retrieve an image from the server
+      security:
+        - jwt: []
+      parameters:
+        - in: path
+          name: uid
+          schema:
+            type: integer
+          required: true
+          description: User ID of the photo owner
+        - in: path
+          name: img
+          schema:
+            type: string
+          required: true
+          description: Image reference as defined by server
+      responses:
+        '200':
+          description: The image in the format uploaded by the user
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: bad request
+        '401':
+          description: unauthorized, must have valid auth token and have permissions to view specified image
+        '500':
+          description: internal server error, unable to upload
+    delete:
+      tags:
+        - JWT
+      summary: Deletes an image from the server
+      security:
+        - jwt: []
+      parameters:
+        - in: path
+          name: uid
+          schema:
+            type: integer
+          required: true
+          description: User ID of the photo owner
+        - in: path
+          name: img
+          schema:
+            type: string
+          required: true
+          description: Image reference as defined by server
+      responses:
+        '200':
+          description: successfull deletion of image from server
+        '400':
+          description: bad request
+        '401':
+          description: unauthorized, must have valid auth token and have permissions to delete specified image
+        '500':
+          description: internal server error, unable to delete
+    put:
+      tags:
+        - JWT
+      summary: Updates image metadata on the server
+      security:
+        - jwt: []
+      parameters:
+        - in: path
+          name: uid
+          schema:
+            type: integer
+          required: true
+          description: User ID of the photo owner
+        - in: path
+          name: img
+          schema:
+            type: string
+          required: true
+          description: Image reference as defined by server
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateImage'
+      responses:
+        '200':
+          description: successfull update of image data, returns new image meta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageMeta'  
+        '400':
+          description: bad request
+        '401':
+          description: unauthorized, must have valid auth token and have permissions to delete specified image
+        '500':
+          description: internal server error, unable to delete
+  /image/meta:
+    get:
+      tags:
+        - JWT
+      summary: Retrieves image metadata based on supplied parameters and user permission all parameters are optional. When query parameters are not set returns all image metadata belonging to the user
+      security:
+        - jwt: []
+      parameters:
+        - in: query
+          name: id
+          schema:
+            type: integer
+          description: specifies the id of the image of interest
+        - in: query
+          name: uid
+          schema:
+            type: integer
+          description: specifies the uid of the images of interest
+        - in: query
+          name: title
+          schema:
+            type: string
+          description: specifies the title of the images of interest
+        - in: query
+          name: encoding
+          schema:
+            type: string
+          description: specifies the encoding tipe of the images of interest
+        - in: query
+          name: shareable
+          schema:
+            type: boolean
+          description: specifies the sharable status of the images of interest
+        - in: query
+          name: page
+          schema:
+            type: integer
+          description: defaults to 0, page size set to 50 by server. For generic queries paginated requests are required.
+      responses:
+        '200':
+          description: successfull query returns query results and array of image meta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageQuery'
+        '400':
+          description: unable to parse query bad request
+        '401':
+          description: unauthorized ensure you have a valid jwt
+        '500':
+          description: internal server error unable to complete request
+servers:
+  - url: https://localhost:8000/
+  
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    jwt:
+      type: apiKey
+      in: cookie
+      name: token
+      
+  schemas:
+    ImageQuery:
+      type: object
+      required:
+        - page
+        - totalResults
+        - imageMeta
+      properties:
+        page:
+          type: integer
+          example: 0
+          description: page of request
+        totalResults:
+          type: integer
+          example: 212
+          description: total number of results for query, requires pagination
+        imageMeta:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageMeta'  
+    ImageMeta:
+      type: object
+      required:
+        - id
+        - uid
+        - title
+        - ref
+        - size
+        - encoding
+        - shareable
+      properties:
+        id:
+          type: integer
+          example: 1
+        uid:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: myimage.png
+        ref:
+          type: string
+          example: "localhost:8000/1/6.png"
+        size:
+          type: integer
+          example: 2950
+        encoding:
+          type: string
+          example: image/png
+        shareable:
+          type: boolean
+          example: true
+    CreateImage:
+      type: object
+      required:
+        - image
+      properties:
+        title:
+          type: string
+          example: "photo.png"
+        shareable:
+          type: string
+          example: "true"
+        image:
+          type: string
+          format: base64
+    UpdateImage:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "photo.png"
+        shareable:
+          type: string
+          example: "true"
+    PingResp:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: pong
+    RegisterReq:
+      type: object
+      required:
+        - firstname
+        - lastname
+        - email
+        - password
+      properties:
+        firstname:
+          type: string
+          example: Jacoby
+        lastname:
+          type: string
+          example: Joukema
+        email:
+          type: string
+          example: jacoby.joukema@gmail.com
+        password:
+          type: string
+          example: testpass

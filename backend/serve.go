@@ -43,13 +43,15 @@ type Image struct {
 	Encoding string `json:"encoding" sql:"encoding"`
 	Hidden   bool   `json:"hidden" sql:"hidden"`
 	// UploadDate Expansion opportunity
-	// Rating Expansion opportunity
-	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
 }
 
-type ImageQuery struct {
-	Ids   []int32 `json:"id"` // null id field will return all owned imag
-	Owned bool    `json:"owned"`
+// ImageParams are mutable parameters that can be defined by users
+// these can be expanded to allow for more user defined features like tags, ratings, likes, prices
+type ImageParams struct {
+	Title  string `json:"title"`
+	Hidden bool   `json:"hidden"`
+	// Rating Expansion opportunity
+	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
 }
 
 // Used for managing User metadata tagged for json and sql serialization
@@ -84,13 +86,13 @@ func serve() error {
 	router.HandleFunc("/register", register).Methods("POST")
 	router.HandleFunc("/auth", auth).Methods("GET")
 
-	// Basic image management endpoints
+	// Basic image creation endpoint
 	router.HandleFunc("/image", addImage).Methods("POST")
-	router.HandleFunc("/image", updateImage).Methods("PUT")
 
 	// Image data endpoints
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", getImage).Methods("GET")
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", delImage).Methods("DELETE")
+	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", updateImage).Methods("PUT")
 	router.HandleFunc("/image/{pub}", imageMetaRequest).Queries("page", "{page:[0-9]+}").Methods("GET")
 	router.HandleFunc("/image/{pub}", imageMetaRequest).Methods("GET")
 
@@ -650,6 +652,7 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
 	logger.Info("Successfully returned image meta request for UID: %v", claims.Uid)
+	return
 }
 
 // getImage accepts multipart form-data with image metadata and deletes the appropriate
@@ -665,7 +668,91 @@ func updateImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Info("%v", claims.Uid)
+	vars := mux.Vars(req)
+	// validate url parameters and retrieve imageMeta
+	imageMeta, err := validateVars(vars)
+	if err != nil {
+		if strings.Contains(err.Error(), "404 - Not found") {
+			logger.Error("image data does not exist sending 404: %v", err)
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("404 - Not found, no image with that information available"))
+			return
+		}
+		logger.Error("Failed to validate vars sending 400: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Bad request unable to parse url parameters"))
+		return
+	}
+
+	// Ensure there is no uid miss match
+	uidVal, err := strconv.Atoi(vars["uid"])
+	if uidVal != int(imageMeta.Uid) {
+		logger.Error("uid miss match when attempting to modify image sending 400")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Uid mismatch ensure you are using the correct image reference"))
+		return
+	}
+
+	// Ensure user has access permissions
+	if claims.Uid != int(imageMeta.Uid) {
+		logger.Error("unauthorized user attempting to modify image")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - Unauthorized, you do not have permissions to modify this image"))
+		return
+	}
+
+	// decode json message into ImageParams struct
+	// string map must be used to account for empty values
+	var newParams map[string]string
+	decoder := json.NewDecoder(req.Body)
+	err = decoder.Decode(&newParams)
+	if err != nil {
+		logger.Error("failed to demarshal json body sending 400: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - unable to parse json, check your request"))
+		return
+	}
+
+	// if request specified a new title that is at least one character update meta
+	if title, ok := newParams["title"]; ok && len(title) > 0 {
+		logger.Info("TERT")
+		fileExt := strings.Split(imageMeta.Encoding, "/")[1]
+
+		// Manually assign extension even if one is already there
+		imageMeta.Title = fmt.Sprintf("%s.%s", strings.Split(title, ".")[0], fileExt)
+	}
+
+	// if request specified a new hidden value that is valid update meta
+	if hidden, ok := newParams["hidden"]; ok {
+		if hidden == "true" {
+			imageMeta.Hidden = true
+		} else if hidden == "false" {
+			imageMeta.Hidden = false
+		}
+	}
+
+	err = UpdateImageData(imageMeta)
+	if err != nil {
+		logger.Error("failed to update database with new meta sending 500: %v")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Failed to update database, try again later"))
+		return
+	}
+
+	// marshal data into json to prep the query response
+	js, err := json.Marshal(imageMeta)
+	if err != nil {
+		logger.Error("Failed to marshal image meta sending 500: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - failed to marshal response, try again later"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(js)
+	logger.Info("Successfully returned image meta request for UID: %v", claims.Uid)
+
+	return
 
 }
 
