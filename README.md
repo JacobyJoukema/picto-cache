@@ -31,4 +31,5 @@ The following references were utilized in order to develop key components of thi
 - https://golangcode.com/get-the-content-type-of-file/ - Identify file type in Go
 - https://tutorialedge.net/golang/authenticating-golang-rest-api-with-jwts/ - JWT authentication in Golang
 - https://dev.to/techschoolguru/how-to-securely-store-passwords-3cg7 - Password hashing and storage techniques for go
+- https://flaviocopes.com/golang-enable-cors/ - Supporting CORs in golang
 

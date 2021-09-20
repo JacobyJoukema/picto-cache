@@ -48,6 +48,15 @@ paths:
       responses:
         '200':
           description: registration successfull, jwt token return via cookie
+          headers:
+              Set-Cookie:
+                schema:
+                  type: string
+                  example: token=abc123
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResp'
         '400':
           description: bad input parameters, email may already be registered
   /auth:
@@ -60,6 +69,15 @@ paths:
       responses:
         '200':
           description: authentication successfull, jwt token return via cookie
+          headers:
+              Set-Cookie:
+                schema:
+                  type: string
+                  example: token=abc123
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResp'
         '401':
           description: unauthorized, check credentials and try again
   /image:
@@ -69,6 +87,7 @@ paths:
       summary: Upload an image to the repository
       security:
         - jwt: []
+        - bearer: []
       requestBody:
         content:
           multipart/form-data:
@@ -93,6 +112,7 @@ paths:
       summary: Retrieve an image from the server
       security:
         - jwt: []
+        - bearer: []
       parameters:
         - in: path
           name: uid
@@ -130,6 +150,7 @@ paths:
       summary: Deletes an image from the server
       security:
         - jwt: []
+        - bearer: []
       parameters:
         - in: path
           name: uid
@@ -158,6 +179,7 @@ paths:
       summary: Updates image metadata on the server
       security:
         - jwt: []
+        - bearer: []
       parameters:
         - in: path
           name: uid
@@ -252,6 +274,10 @@ components:
       type: apiKey
       in: cookie
       name: token
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
       
   schemas:
     ImageQuery:
@@ -333,14 +359,6 @@ components:
         shareable:
           type: string
           example: "true"
-    PingResp:
-      type: object
-      required:
-        - message
-      properties:
-        message:
-          type: string
-          example: pong
     RegisterReq:
       type: object
       required:
@@ -361,3 +379,27 @@ components:
         password:
           type: string
           example: testpass
+    TokenResp:
+      type: object
+      required:
+        - name
+        - token
+        - expiration
+      properties:
+        name:
+          type: string
+          example: token
+        token:
+          type: string
+          example: 'abc123'
+        expiration:
+          type: string
+          example: 2021-09-20 05:04:28 -0400 EDT
+    PingResp:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: pong

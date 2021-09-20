@@ -77,6 +77,12 @@ type UserPassword struct {
 	HashedPass string `sql:"hashed_pass"`
 }
 
+type TokenResp struct {
+	Name       string `json:"name"`
+	Value      string `json:"token"`
+	Expiration string `json:"expiration"`
+}
+
 type JWTClaims struct {
 	Email string
 	Uid   int
@@ -89,17 +95,17 @@ func serve() error {
 	router := mux.NewRouter()
 
 	// Basic service endpoints
-	router.HandleFunc("/ping", ping).Methods("GET")
-	router.HandleFunc("/register", register).Methods("POST")
-	router.HandleFunc("/auth", auth).Methods("GET")
+	router.HandleFunc("/ping", ping).Methods("GET", "OPTIONS")
+	router.HandleFunc("/register", register).Methods("POST", "OPTIONS")
+	router.HandleFunc("/auth", auth).Methods("GET", "OPTIONS")
 
 	// Basic image creation endpoint
-	router.HandleFunc("/image", addImage).Methods("POST")
+	router.HandleFunc("/image", addImage).Methods("POST", "OPTIONS")
 
 	// Image data endpoints
-	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", getImage).Methods("GET")
-	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", delImage).Methods("DELETE")
-	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", updateImage).Methods("PUT")
+	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", getImage).Methods("GET", "OPTIONS")
+	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", delImage).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", updateImage).Methods("PUT", "OPTIONS")
 
 	// Image meta query methods
 	router.HandleFunc("/image/meta?", imageMetaRequest).Queries(
@@ -120,7 +126,12 @@ func serve() error {
 
 // ping responds to the url pattern /ping with a simple message to validate server
 func ping(w http.ResponseWriter, req *http.Request) {
-	logger.Debug("/ping request")
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	resp := PingResp{
 		Message: "pong",
@@ -138,6 +149,12 @@ func ping(w http.ResponseWriter, req *http.Request) {
 }
 
 func register(w http.ResponseWriter, req *http.Request) {
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	// Ensure request is multipart/form-data
 	contentType := req.Header.Get("Content-Type")
@@ -233,10 +250,32 @@ func register(w http.ResponseWriter, req *http.Request) {
 		Expires: time.Unix(exp, 0),
 	})
 
-	logger.Info("Successfully registered account Uid: %v - Email: %v - Name: %v %v", user.Uid, user.Email, user.Firstname, user.Lastname)
+	// Prepare to marshal into json
+	tokenResp := TokenResp{
+		Name:       "token",
+		Value:      token,
+		Expiration: time.Unix(exp, 0).String(),
+	}
+
+	resp, err := json.Marshal(tokenResp)
+	if err != nil {
+		logger.Error("failed to marshal token, sending 500: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Unable to marshal token, try again later"))
+		return
+	}
+
+	w.Write(resp)
+	return
 }
 
 func auth(w http.ResponseWriter, req *http.Request) {
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	// Retrieve basic auth credentials
 	email, password, _ := req.BasicAuth()
@@ -274,6 +313,24 @@ func auth(w http.ResponseWriter, req *http.Request) {
 		Value:   token,
 		Expires: time.Unix(exp, 0),
 	})
+
+	// Prepare to marshal into json
+	tokenResp := TokenResp{
+		Name:       "token",
+		Value:      token,
+		Expiration: time.Unix(exp, 0).String(),
+	}
+
+	resp, err := json.Marshal(tokenResp)
+	if err != nil {
+		logger.Error("failed to marshal token, sending 500: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Unable to marshal token, try again later"))
+		return
+	}
+
+	w.Write(resp)
+	return
 }
 
 func generateJWT(uid int, email string) (string, int64, error) {
@@ -314,17 +371,26 @@ func getSigningKey() []byte {
 }
 
 // authRequest accepts the http request and parses the attached jwt token
-// and returns the JWTClaims for the assigned jwt
-// stored in the assigned cookie in order to ensure the request is authorized
+// and returns the JWTClaims for the assigned jwt which is stored
+// in a cookie. Users also have the opportunity to use the token as bearer token
 func authRequest(req *http.Request) (JWTClaims, error) {
+
+	// init tokenStr
+	tokenStr := ""
+
+	// attempt to retrieve from cookie, if not assign the value of the authorization header
 	cookie, err := req.Cookie("token")
 	if err != nil {
-		return JWTClaims{}, fmt.Errorf("unable to find token, unauthorized: %v", err)
+		tokenStr = strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	} else {
+		tokenStr = cookie.Value
 	}
+
+	logger.Info(tokenStr)
 
 	claims := &JWTClaims{}
 
-	token, err := jwt.ParseWithClaims(cookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 		return getSigningKey(), nil
 	})
 	if err != nil || !token.Valid {
@@ -336,6 +402,12 @@ func authRequest(req *http.Request) (JWTClaims, error) {
 
 // getImage returns the image defined in the url parameters if the user is authorized to view it
 func getImage(w http.ResponseWriter, req *http.Request) {
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	logger.Info("hit getImage end")
 	// Authorize request
@@ -390,6 +462,12 @@ func getImage(w http.ResponseWriter, req *http.Request) {
 // addImage accepts multipart form-data with image metadata
 // this function checks to ensure the image is of type jpg or png
 func addImage(w http.ResponseWriter, req *http.Request) {
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	claims, err := authRequest(req)
 	if err != nil {
@@ -547,6 +625,12 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 // image given the requesting person has the authorization to do so
 func delImage(w http.ResponseWriter, req *http.Request) {
 
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
+
 	logger.Info("hit delImage end")
 
 	// Authenticate user
@@ -618,7 +702,11 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 // image given the requesting person has the authorization to do so
 func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 
-	logger.Info("hit imagemeta end")
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	// Authenticate user
 	claims, err := authRequest(req)
@@ -657,7 +745,11 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 // image given the requesting person has the authorization to do so
 func updateImage(w http.ResponseWriter, req *http.Request) {
 
-	logger.Info("hit updateImage end")
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
 
 	// Authenticate user
 	claims, err := authRequest(req)
@@ -775,4 +867,10 @@ func validateVars(vars map[string]string) (Image, error) {
 	}
 
 	return imageMeta, nil
+}
+
+func setCors(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 }
