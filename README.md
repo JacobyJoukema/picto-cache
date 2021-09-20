@@ -32,4 +32,5 @@ The following references were utilized in order to develop key components of thi
 - https://tutorialedge.net/golang/authenticating-golang-rest-api-with-jwts/ - JWT authentication in Golang
 - https://dev.to/techschoolguru/how-to-securely-store-passwords-3cg7 - Password hashing and storage techniques for go
 - https://flaviocopes.com/golang-enable-cors/ - Supporting CORs in golang
+- https://blog.questionable.services/article/testing-http-handlers-go/ - Testing http handlers in go
 

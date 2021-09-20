@@ -95,6 +95,7 @@ func serve() error {
 	router := mux.NewRouter()
 
 	// Basic service endpoints
+	router.HandleFunc("/", home).Methods("GET", "OPTIONS", "POST", "PUT", "DELETE")
 	router.HandleFunc("/ping", ping).Methods("GET", "OPTIONS")
 	router.HandleFunc("/register", register).Methods("POST", "OPTIONS")
 	router.HandleFunc("/auth", auth).Methods("GET", "OPTIONS")
@@ -124,6 +125,17 @@ func serve() error {
 	return (http.ListenAndServe(PORT, router))
 }
 
+func home(w http.ResponseWriter, req *http.Request) {
+
+	// Manage Cors
+	setCors(&w)
+	if req.Method == "OPTIONS" {
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("200 - OK Picto Cache server online"))
+}
+
 // ping responds to the url pattern /ping with a simple message to validate server
 func ping(w http.ResponseWriter, req *http.Request) {
 
@@ -146,6 +158,7 @@ func ping(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
+	return
 }
 
 func register(w http.ResponseWriter, req *http.Request) {

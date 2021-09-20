@@ -14,6 +14,20 @@ tags:
   - name: JWT
     description: Closed calls that require authenticaion via jwt
 paths:
+  /:
+    get:
+      tags:
+        - Open
+      summary: Test server connectivity
+      operationId: home
+      description: This open endpoint allows clients to test availability of the server without authentication.
+      responses:
+        '200':
+          description: responsive server call
+        '400':
+          description: bad input parameter
+        '405':
+          description: bad request method
   /ping:
     get:
       tags:
