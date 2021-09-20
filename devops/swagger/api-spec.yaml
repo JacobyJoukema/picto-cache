@@ -241,7 +241,7 @@ paths:
         '500':
           description: internal server error unable to complete request
 servers:
-  - url: https://localhost:8000/
+  - url: https://localhost:5050/
   
 components:
   securitySchemes:

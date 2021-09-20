@@ -113,8 +113,9 @@ func serve() error {
 
 	http.Handle("/", router)
 
-	logger.Info("Initiating HTTP Server")
-	return (http.ListenAndServe(PORT, router))
+	logger.Info("Initiating HTTPS Server")
+	return http.ListenAndServeTLS(":5050", "./keys/server.crt", "./keys/server.key", router)
+	//return (http.ListenAndServe(PORT, router))
 }
 
 // ping responds to the url pattern /ping with a simple message to validate server

@@ -18,6 +18,7 @@ This project leverages a few dependencies in order to ensure that the software i
 ### API Dependencies
 1. [https://golang.org/doc/install](Go) (Golang) - REQUIRED - Follow instructions on the official site to install for your system
 2. [https://www.postgresql.org/download/](PostgreSQL) - REQUIRED - Follow instructions on the official site or [/devops/psql/psql-install.sh](/devops/psql/psql-install.sh) to install on Ubuntu.
+3. [https://gist.github.com/denji/12b3a568f092ab951456](SSLKey) - REQUIRED - Follow instructions linked to generate key and certification and place in [/backend/keys](/backend/keys) directory order to enable TLS for proper authentication techniques.
 3. [https://swagger.io/docs/open-source-tools/swagger-ui/usage/installation/](Swagger) - Recommended - Follow instructions on official site, used for api documentation and manual testing of endpoints.
 4. [https://www.postman.com/](Postman) - Recommended - Follow instructions on official site, used for manual testing of endpoints.
 
