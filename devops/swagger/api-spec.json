@@ -1,0 +1,103 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Picto Cache API",
+    "description": "API For Shopify 2022 Winter Backend Intern Position by Jacoby Joukema",
+    "contact": {
+      "email": "jacobyjoukema@gmail.com"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://github.com/JacobyJoukema/picto-cache/blob/main/LICENSE"
+    },
+    "version": "1.0.0-oas3"
+  },
+  "servers": [
+    {
+      "url": "https://localhost:8000/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "open",
+      "description": "Open calls that do not require valid jwt"
+    },
+    {
+      "name": "secured",
+      "description": "Closed calls that require authenticaion via jwt"
+    }
+  ],
+  "paths": {
+    "/ping": {
+      "get": {
+        "tags": [
+          "open"
+        ],
+        "summary": "Test server connectivity",
+        "description": "This open endpoint allows clients to test availability of the server without authentication.",
+        "operationId": "ping",
+        "responses": {
+          "200": {
+            "description": "responsive server call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PingResp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad input parameter"
+          },
+          "405": {
+            "description": "bad request method"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PingResp": {
+        "required": [
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "pong"
+          }
+        }
+      },
+      "RegisterReq": {
+        "required": [
+          "email",
+          "firstname",
+          "lastname",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "firstname": {
+            "type": "string",
+            "example": "Jacoby"
+          },
+          "lastname": {
+            "type": "string",
+            "example": "Joukema"
+          },
+          "email": {
+            "type": "string",
+            "example": "jacoby.joukema@gmail.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "testpass"
+          }
+        }
+      }
+    }
+  }
+}
