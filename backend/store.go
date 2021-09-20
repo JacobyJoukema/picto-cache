@@ -245,6 +245,27 @@ func AddUserData(userData User) (int32, error) {
 	return int32(id), nil
 }
 
+// AddUserMeta inserts a row into the image_meta table and returns the assigned id
+func GetUserData(email string) (User, error) {
+
+	conn, err := connectSQL()
+	if err != nil {
+		return User{}, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
+	}
+	defer conn.Close()
+
+	users, err := conn.SelectFromWhere(User{}, USER_TABLE, fmt.Sprintf("email='%s'", email))
+	if err != nil {
+		return User{}, fmt.Errorf("unable to add user meta due to insertion error: %v", err)
+	}
+	// Failed to retrieve
+	if len(users) != 1 {
+		return User{}, fmt.Errorf("404 - Not found")
+	}
+
+	return users[0].(User), nil
+}
+
 // UpdateUserMeta updates the corresponding row into the user_meta table according to the provided parameter
 func UpdateUserData(userData User) error {
 
@@ -271,7 +292,17 @@ func DeleteUserData(userData User) error {
 	}
 	defer conn.Close()
 
+	password, _, err := GetHashedPass(userData.Email)
+	if err != nil {
+		return fmt.Errorf("failed to get hashed pass for deletion: %v", err)
+	}
+
 	err = conn.DeleteObject(USER_TABLE, userData)
+	if err != nil {
+		return fmt.Errorf("unable to delete user meta: %v", err)
+	}
+
+	err = conn.DeleteObject(PASS_TABLE, password)
 	if err != nil {
 		return fmt.Errorf("unable to delete user meta: %v", err)
 	}
@@ -330,36 +361,36 @@ func DeleteUserPass(pass UserPassword) error {
 	return nil
 }
 
-func GetHashedPass(email string) (string, User, error) {
+func GetHashedPass(email string) (UserPassword, User, error) {
 	conn, err := connectSQL()
 	if err != nil {
-		return "", User{}, fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
+		return UserPassword{}, User{}, fmt.Errorf("unable to delete user pass to db due to connection error: %v", err)
 	}
 	defer conn.Close()
 
 	userRows, err := conn.SelectFromWhere(User{}, USER_TABLE, fmt.Sprintf("email='%s'", email))
 	if err != nil {
-		return "", User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+		return UserPassword{}, User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
 	}
 
 	if len(userRows) != 1 {
-		return "", User{}, fmt.Errorf("cannot find email")
+		return UserPassword{}, User{}, fmt.Errorf("cannot find email")
 	}
 
 	user := userRows[0].(User)
 
 	passRows, err := conn.SelectFromWhere(UserPassword{}, PASS_TABLE, fmt.Sprintf("id=%v", user.Uid))
 	if err != nil {
-		return "", User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
+		return UserPassword{}, User{}, fmt.Errorf("selection failed, unable to retrieve hashed uid: %v", err)
 	}
 
 	if len(userRows) != 1 {
-		return "", User{}, fmt.Errorf("cannot find hashed pass")
+		return UserPassword{}, User{}, fmt.Errorf("cannot find hashed pass")
 	}
 
 	pass := passRows[0].(UserPassword)
 
-	return pass.HashedPass, user, nil
+	return pass, user, nil
 }
 
 // UniqueEmail queries the user_table in order to determine if an email is unique

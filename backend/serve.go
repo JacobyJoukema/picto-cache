@@ -89,11 +89,12 @@ type JWTClaims struct {
 	jwt.StandardClaims
 }
 
-// serve starts the http server and listens on port assigned above
-func serve() error {
-
+// configureRoutes assigns all the routing parameters and returns a router for service
+func configureRoutes() *mux.Router {
+	// establish router
 	router := mux.NewRouter()
 
+	// add routes
 	// Basic service endpoints
 	router.HandleFunc("/", home).Methods("GET", "OPTIONS", "POST", "PUT", "DELETE")
 	router.HandleFunc("/ping", ping).Methods("GET", "OPTIONS")
@@ -117,6 +118,14 @@ func serve() error {
 		"encoding", "{encoding}",
 		"shareable", "{shareable)").Methods("GET")
 	router.HandleFunc("/image/meta", imageMetaRequest).Methods("GET", "OPTIONS")
+
+	return router
+}
+
+// serve starts the http server and listens on port assigned above
+func serve() error {
+
+	router := configureRoutes()
 
 	http.Handle("/", router)
 
@@ -236,7 +245,7 @@ func register(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Add hashed password to password table
-	uid, err := AddUserPass(pass)
+	_, err = AddUserPass(pass)
 	if err != nil {
 		logger.Error("Failed to store hashed password cleaning user and sending 500: %v", err)
 		w.WriteHeader((http.StatusInternalServerError))
@@ -244,8 +253,6 @@ func register(w http.ResponseWriter, req *http.Request) {
 		DeleteUserData(user)
 		return
 	}
-
-	logger.Info("UID: %v - UID PASS: %v", user.Uid, uid)
 
 	// Generate and set JWT
 	token, exp, err := generateJWT(int(user.Uid), user.Email)
@@ -301,7 +308,7 @@ func auth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(hashedPass), []byte(password))
+	err = bcrypt.CompareHashAndPassword([]byte(hashedPass.HashedPass), []byte(password))
 	if err != nil {
 		logger.Error("Password mismatch, sending 401: %v", err)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -399,8 +406,6 @@ func authRequest(req *http.Request) (JWTClaims, error) {
 		tokenStr = cookie.Value
 	}
 
-	logger.Info(tokenStr)
-
 	claims := &JWTClaims{}
 
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
@@ -422,7 +427,6 @@ func getImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Info("hit getImage end")
 	// Authorize request
 	claims, err := authRequest(req)
 	if err != nil {
@@ -632,6 +636,7 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
 	logger.Info("Successfully uploaded (Title: %v - Size: %v - Type: %v)", title, imgHeader.Size, fileType)
+	return
 }
 
 // delImage accepts multipart form-data with image metadata and deletes the appropriate
@@ -643,8 +648,6 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "OPTIONS" {
 		return
 	}
-
-	logger.Info("hit delImage end")
 
 	// Authenticate user
 	claims, err := authRequest(req)
