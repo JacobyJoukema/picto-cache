@@ -258,6 +258,7 @@ components:
       type: object
       required:
         - page
+        - pageSize
         - totalResults
         - imageMeta
       properties:
@@ -265,6 +266,10 @@ components:
           type: integer
           example: 0
           description: page of request
+        pageSize:
+          type: integer
+          example: 50
+          description: size of page, server defined to 50
         totalResults:
           type: integer
           example: 212

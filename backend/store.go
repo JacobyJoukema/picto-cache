@@ -10,7 +10,10 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/inflowml/logger"
 	"github.com/inflowml/structql"
@@ -145,27 +148,73 @@ func GetImageMeta(id int32) (Image, error) {
 }
 
 // ImageMetaQuery accepts query parameters and returns an array of image interfaces
-func ImageMetaQuery(uid int32, pub bool, page int) ([]Image, error) {
+func ImageMetaQuery(uid int, params url.Values) (QueryResp, error) {
 
 	// Connect to database
 	conn, err := connectSQL()
 	if err != nil {
-		return []Image{}, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
+		return QueryResp{}, fmt.Errorf("unable to add user meta to db due to connection error: %v", err)
 	}
 	defer conn.Close()
 
-	// Build query string based on parameters
-	query := ""
-	if pub {
-		query = fmt.Sprintf("hidden=false AND uid!=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
-	} else {
-		query = fmt.Sprintf("uid=%v LIMIT %v OFFSET %v", uid, PAGE_SIZE, page*PAGE_SIZE)
+	// Define page of request
+	page, err := strconv.Atoi(params.Get("page"))
+	if err != nil {
+		page = 0
 	}
 
-	// Query database for requested image meta
-	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, query)
+	// Build query string based on parameters
+	query := ""
+
+	// Build complex db query based on url parameters
+	conditions := []string{}
+
+	if params.Has("id") {
+		conditions = append(conditions, fmt.Sprintf("id='%v'", params.Get("id")))
+	}
+	if params.Has("uid") {
+		conditions = append(conditions, fmt.Sprintf("uid='%v'", params.Get("uid")))
+	}
+	if params.Has("title") {
+		conditions = append(conditions, fmt.Sprintf("title='%v'", params.Get("title")))
+	}
+	if params.Has("shareable") {
+		conditions = append(conditions, fmt.Sprintf("shareable='%v'", params.Get("shareable")))
+	}
+	if params.Has("encoding") {
+		conditions = append(conditions, fmt.Sprintf("encoding='%v'", params.Get("encoding")))
+	}
+	// Add permissions condition make sure user owns or image is shareable
+	conditions = append(conditions, fmt.Sprintf("(uid=%v OR shareable=true)", uid))
+
+	logger.Info("%v", conditions)
+
+	// Join dynamic conditions with SQL AND
+	query = strings.Join(conditions, " AND ")
+
+	// Default request for default parameters
+	if len(params) == 0 || (len(params) == 1 && params.Has("page")) {
+		query = fmt.Sprintf("uid=%v", uid)
+	}
+
+	totalResp, err := conn.CountRowsWhere(IMAGE_TABLE, query)
 	if err != nil {
-		return []Image{}, fmt.Errorf("unable to retrieve metadata: %v", err)
+		return QueryResp{}, fmt.Errorf("failed to count rows with query: %v", err)
+	}
+
+	resp := QueryResp{
+		Page:         page,
+		PageSize:     PAGE_SIZE,
+		TotalResults: int(totalResp),
+		ImageMeta:    []Image{},
+	}
+
+	pagedQuery := fmt.Sprintf("%s LIMIT %v OFFSET %v", query, PAGE_SIZE, page*PAGE_SIZE)
+
+	// Query database for requested image meta
+	dbReturn, err := conn.SelectFromWhere(Image{}, IMAGE_TABLE, pagedQuery)
+	if err != nil {
+		return QueryResp{}, fmt.Errorf("unable to retrieve metadata: %v", err)
 	}
 
 	// Cast dbReturn to array of images
@@ -174,8 +223,9 @@ func ImageMetaQuery(uid int32, pub bool, page int) ([]Image, error) {
 		images = append(images, image.(Image))
 	}
 
-	return images, nil
+	resp.ImageMeta = images
 
+	return resp, nil
 }
 
 // AddUserMeta inserts a row into the image_meta table and returns the assigned id

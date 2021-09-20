@@ -35,21 +35,28 @@ type PingResp struct {
 
 // Used for managing Image metadata tagged for json and sql serialization
 type Image struct {
-	Id       int32  `json:"id" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
-	Uid      int32  `json:"uid" sql:"uid"`
-	Title    string `json:"title" sql:"title"`
-	Ref      string `json:"ref" sql:"ref"`
-	Size     int32  `json:"size" sql:"size"`
-	Encoding string `json:"encoding" sql:"encoding"`
-	Hidden   bool   `json:"hidden" sql:"hidden"`
+	Id        int32  `json:"id" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
+	Uid       int32  `json:"uid" sql:"uid"`
+	Title     string `json:"title" sql:"title"`
+	Ref       string `json:"ref" sql:"ref"`
+	Size      int32  `json:"size" sql:"size"`
+	Encoding  string `json:"encoding" sql:"encoding"`
+	Shareable bool   `json:"shareable" sql:"shareable"`
 	// UploadDate Expansion opportunity
+}
+
+type QueryResp struct {
+	Page         int     `json:"page"`
+	PageSize     int     `json:"pageSize"`
+	TotalResults int     `json:"totalResults"`
+	ImageMeta    []Image `json:"imageMeta"`
 }
 
 // ImageParams are mutable parameters that can be defined by users
 // these can be expanded to allow for more user defined features like tags, ratings, likes, prices
 type ImageParams struct {
-	Title  string `json:"title"`
-	Hidden bool   `json:"hidden"`
+	Title     string `json:"title"`
+	Shareable bool   `json:"shareable"`
 	// Rating Expansion opportunity
 	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
 }
@@ -93,8 +100,16 @@ func serve() error {
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", getImage).Methods("GET")
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", delImage).Methods("DELETE")
 	router.HandleFunc("/image/{uid:[0-9]+}/{fileId}", updateImage).Methods("PUT")
-	router.HandleFunc("/image/{pub}", imageMetaRequest).Queries("page", "{page:[0-9]+}").Methods("GET")
-	router.HandleFunc("/image/{pub}", imageMetaRequest).Methods("GET")
+
+	// Image meta query methods
+	router.HandleFunc("/image/meta?", imageMetaRequest).Queries(
+		"page", "{page:[0-9]+}",
+		"id", "{id:[0-9]+}",
+		"uid", "{uid:[0-9]+}",
+		"title", "{title}",
+		"encoding", "{encoding}",
+		"shareable", "{shareable)").Methods("GET")
+	router.HandleFunc("/image/meta", imageMetaRequest).Methods("GET")
 
 	http.Handle("/", router)
 
@@ -321,6 +336,7 @@ func authRequest(req *http.Request) (JWTClaims, error) {
 // getImage returns the image defined in the url parameters if the user is authorized to view it
 func getImage(w http.ResponseWriter, req *http.Request) {
 
+	logger.Info("hit getImage end")
 	// Authorize request
 	claims, err := authRequest(req)
 	if err != nil {
@@ -422,10 +438,10 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 
 	uid := claims.Uid
 
-	// default to hidden unless explicitly false
-	hidden := true
-	if req.FormValue("hidden") == "false" {
-		hidden = false
+	// default to not shareable unless explicitly false
+	shareable := false
+	if req.FormValue("shareable") == "true" {
+		shareable = true
 	}
 
 	// ensure storage directory for the user exists
@@ -448,12 +464,12 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 
 	// Prepare image meta for SQL storage
 	imageData := Image{
-		Uid:      int32(uid),
-		Title:    title,
-		Size:     int32(imgHeader.Size),
-		Ref:      "", // placeholder reference for update after id is assigned to ensure unique filename
-		Hidden:   hidden,
-		Encoding: fileType,
+		Uid:       int32(uid),
+		Title:     title,
+		Size:      int32(imgHeader.Size),
+		Ref:       "", // placeholder reference for update after id is assigned to ensure unique filename
+		Shareable: shareable,
+		Encoding:  fileType,
 	}
 
 	// Insert image data and retrieve unique id
@@ -529,6 +545,9 @@ func addImage(w http.ResponseWriter, req *http.Request) {
 // delImage accepts multipart form-data with image metadata and deletes the appropriate
 // image given the requesting person has the authorization to do so
 func delImage(w http.ResponseWriter, req *http.Request) {
+
+	logger.Info("hit delImage end")
+
 	// Authenticate user
 	claims, err := authRequest(req)
 	if err != nil {
@@ -598,6 +617,8 @@ func delImage(w http.ResponseWriter, req *http.Request) {
 // image given the requesting person has the authorization to do so
 func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 
+	logger.Info("hit imagemeta end")
+
 	// Authenticate user
 	claims, err := authRequest(req)
 	if err != nil {
@@ -607,41 +628,18 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	vars := mux.Vars(req)
-	logger.Info("Pub: %v - Page: %T", vars["pub"], vars["page"])
+	params := req.URL.Query()
 
-	// Check pattern to ensure it is valid
-	if !(vars["pub"] == "public" || vars["pub"] == "user") {
-		logger.Error("Bad url pattern for image meta request sending 404 not found: %v", err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	// Determine request type
-	public := true
-	if vars["pub"] == "user" {
-		public = false
-	}
-
-	// Determine page
-	page, err := strconv.Atoi(vars["page"])
-	// unable to parse default to 0
+	resp, err := ImageMetaQuery(claims.Uid, params)
 	if err != nil {
-		page = 0
-	}
-
-	imageMeta, err := ImageMetaQuery(int32(claims.Uid), public, page)
-	if err != nil {
-		logger.Error("Failed to retrieve image meta sending 500: %v", err)
+		logger.Error("failed to retrieve image metadata: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - failed to retrieve image meta, try again later"))
+		w.Write([]byte("500 - Failed to complete query, try again later"))
 		return
 	}
-
-	logger.Info("%v", imageMeta)
 
 	// marshal data into json to prep the query response
-	js, err := json.Marshal(imageMeta)
+	js, err := json.Marshal(resp)
 	if err != nil {
 		logger.Error("Failed to marshal image meta sending 500: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -651,13 +649,14 @@ func imageMetaRequest(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(js)
-	logger.Info("Successfully returned image meta request for UID: %v", claims.Uid)
 	return
 }
 
 // getImage accepts multipart form-data with image metadata and deletes the appropriate
 // image given the requesting person has the authorization to do so
 func updateImage(w http.ResponseWriter, req *http.Request) {
+
+	logger.Info("hit updateImage end")
 
 	// Authenticate user
 	claims, err := authRequest(req)
@@ -715,19 +714,18 @@ func updateImage(w http.ResponseWriter, req *http.Request) {
 
 	// if request specified a new title that is at least one character update meta
 	if title, ok := newParams["title"]; ok && len(title) > 0 {
-		logger.Info("TERT")
 		fileExt := strings.Split(imageMeta.Encoding, "/")[1]
 
 		// Manually assign extension even if one is already there
 		imageMeta.Title = fmt.Sprintf("%s.%s", strings.Split(title, ".")[0], fileExt)
 	}
 
-	// if request specified a new hidden value that is valid update meta
-	if hidden, ok := newParams["hidden"]; ok {
-		if hidden == "true" {
-			imageMeta.Hidden = true
-		} else if hidden == "false" {
-			imageMeta.Hidden = false
+	// if request specified a new shareable value that is valid update meta
+	if shareable, ok := newParams["shareable"]; ok {
+		if shareable == "true" {
+			imageMeta.Shareable = true
+		} else if shareable == "false" {
+			imageMeta.Shareable = false
 		}
 	}
 
