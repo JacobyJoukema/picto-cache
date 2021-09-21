@@ -245,7 +245,7 @@ func AddUserData(userData User) (int32, error) {
 	return int32(id), nil
 }
 
-// AddUserMeta inserts a row into the image_meta table and returns the assigned id
+// GetUserData retrieves user data based on the provided email
 func GetUserData(email string) (User, error) {
 
 	conn, err := connectSQL()

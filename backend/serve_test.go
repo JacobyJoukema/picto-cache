@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
 
@@ -285,6 +287,97 @@ func TestAuth(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to delete test user: %v", err)
 	}
+}
+
+// TestUploadImage attempts to upload a file via the /image post request
+// This test requires an image name test.png in the ./test/test.png directory
+func TestUploadImage(t *testing.T) {
+	token, uid, err := getTestToken()
+	if err != nil {
+		t.Errorf("failed to generate test user jwt token: %v", err)
+	}
+
+	// Generate incomplete multipart form data
+	form := new(bytes.Buffer)
+	writer := multipart.NewWriter(form)
+
+	err = writer.WriteField("shareable", "true")
+	if err != nil {
+		t.Errorf("failed to create form field: %v", err)
+	}
+	err = writer.WriteField("title", "image.png")
+	if err != nil {
+		t.Errorf("failed to create form field: %v", err)
+	}
+
+	file, err := os.Open("./test/test.png")
+	if err != nil {
+		t.Errorf("failed to open ./test/test.png: %v", err)
+	}
+	part, _ := writer.CreateFormFile("image", "./test/test.png")
+	io.Copy(part, file)
+	writer.Close()
+
+	req, err := http.NewRequest("POST", "/image", bytes.NewReader(form.Bytes()))
+	if err != nil {
+		t.Errorf("failed to generate request with form data: %v", err)
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Configure http message
+	router := configureRoutes()
+
+	// Request recorder init
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect bad request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+
+	// Read body to clean
+	imageMeta := Image{}
+	err = json.Unmarshal(rr.Body.Bytes(), &imageMeta)
+	if err != nil {
+		t.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	// clean image meta from database
+	err = DeleteImageData(imageMeta)
+	if err != nil {
+		t.Errorf("failed to delete image data meta: %v", err)
+	}
+
+	err = os.RemoveAll(fmt.Sprintf("./%s/%v", IMAGE_DIR, uid))
+	if err != nil {
+		t.Errorf("failed to delete image data: %v", err)
+	}
+
+	// Clean file upload
+
+	/*err = deleteTestUser()
+	if err != nil {
+		t.Errorf("failed to delete test user: %v", err)
+	}*/
+}
+
+// TestGetImage attempts to retrieve an image from the database
+func TestGetImage(t *testing.T) {
+
+}
+
+// getTestToken generates a token after creating a test user
+// must call delete test user at the end of the request
+func getTestToken() (string, int, error) {
+	uid, err := createTestUser()
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to create test user: %v", err)
+	}
+	token, _, err := generateJWT(uid, testUser.Email)
+	return token, uid, err
 }
 
 // createTestUser is a helper function that populates the database with the default test user defined above
