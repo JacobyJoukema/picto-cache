@@ -6,7 +6,7 @@ This system is designed in go with a heavy focus on the backend RESTfull API and
 
 There are three ways to interact with this system:
 
-1. Use the online [jacobyjoukema.com](SwaggerDocs) to interact with the live demo
+1. Use the online Swagger docs at jacobyjoukema.com to interact with the live demo
 2. Interact with the live demo API at [pictocache.jacobyjoukema.com](pictocache.jacobyjoukema.com) with an http tool of your preference
 3. Use the shared Postman workspace to interact with the live demo or a local instance: [![Run in Postman](https://run.pstmn.io/button.svg)](https://app.getpostman.com/run-collection/9043989-40ff35a4-5f77-47d8-a108-992eff445614?action=collection%2Ffork&collection-url=entityId%3D9043989-40ff35a4-5f77-47d8-a108-992eff445614%26entityType%3Dcollection)
 4. Clone and run on your personal device. Not recommended due development requirements such as Go and PostgeSQL
