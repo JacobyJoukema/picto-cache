@@ -129,14 +129,13 @@ func serve() error {
 
 	http.Handle("/", router)
 
-	logger.Info("Initiating HTTP Server")
-
 	// Define port and set to default if environment variable is not set
 	port := PORT
 	if len(os.Getenv("GO_PORT")) > 0 {
 		port = os.Getenv("GO_PORT")
 	}
-	//return http.ListenAndServeTLS(":5050", "./keys/server.crt", "./keys/server.key", router)
+
+	logger.Info("Initiating HTTP Server on Port %v", port)
 	return (http.ListenAndServe(port, router))
 }
 
