@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -289,13 +290,19 @@ func TestAuth(t *testing.T) {
 	}
 }
 
-// TestUploadImage attempts to upload a file via the /image post request
+// TestUImage attempts to complete the full life cycle of images
+// Upon successfull create attempt to retrieve file with GET
+// Upon successfull get attempt to update the meta via PUT
+// Upon successfull update attempt query all images associated with GET
+// Upon successfull query attempt to delete image via DELETE
 // This test requires an image name test.png in the ./test/test.png directory
-func TestUploadImage(t *testing.T) {
+func TestImageLifecycle(t *testing.T) {
 	token, uid, err := getTestToken()
 	if err != nil {
 		t.Errorf("failed to generate test user jwt token: %v", err)
 	}
+
+	///////////////////// UPLOAD IMAGE /////////////////
 
 	// Generate incomplete multipart form data
 	form := new(bytes.Buffer)
@@ -333,19 +340,130 @@ func TestUploadImage(t *testing.T) {
 
 	router.ServeHTTP(rr, req)
 
-	// Compare status codes expect bad request
+	// Compare status codes expect OK request
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
 	}
 
-	// Read body to clean
+	// Read body to attempt to get image
 	imageMeta := Image{}
 	err = json.Unmarshal(rr.Body.Bytes(), &imageMeta)
 	if err != nil {
 		t.Errorf("failed to unmarshal response: %v", err)
 	}
 
-	// clean image meta from database
+	///////////////////// GET IMAGE /////////////////
+
+	req, err = http.NewRequest("GET", strings.TrimPrefix(imageMeta.Ref, REF_URL), nil)
+	if err != nil {
+		t.Errorf("failed to prepare get /image requests: %v", err)
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Request recorder init
+	rr = httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect OK request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+
+	///////////////////// PUT IMAGE /////////////////
+
+	newParams := ImageParams{
+		Title:     "NewName.png",
+		Shareable: "true",
+	}
+
+	// Set expected new image meta
+	imageMeta.Title = newParams.Title
+	imageMeta.Shareable = true
+
+	js, err := json.Marshal(newParams)
+	if err != nil {
+		t.Errorf("failed to marshal newParams into JSON: %v", err)
+	}
+
+	req, err = http.NewRequest("PUT", strings.TrimPrefix(imageMeta.Ref, REF_URL), bytes.NewBuffer(js))
+	if err != nil {
+		t.Errorf("failed to prepare put /image requests: %v", err)
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Request recorder init
+	rr = httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect OK request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+	// Read body to attempt to get image
+	newImageMeta := Image{}
+	err = json.Unmarshal(rr.Body.Bytes(), &newImageMeta)
+	if err != nil {
+		t.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	if !reflect.DeepEqual(imageMeta, newImageMeta) {
+		t.Errorf("wrong updated image meta: got %v want %v", newImageMeta, imageMeta)
+	}
+
+	///////////////////// QUERY IMAGES /////////////////
+
+	req, err = http.NewRequest("GET", "/image/meta", nil)
+	if err != nil {
+		t.Errorf("failed to prepare get /image requests: %v", err)
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Request recorder init
+	rr = httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect OK request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+
+	// Read body to attempt to get image
+	queryResp := QueryResp{}
+	err = json.Unmarshal(rr.Body.Bytes(), &queryResp)
+	if err != nil {
+		t.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	if !reflect.DeepEqual(imageMeta, queryResp.ImageMeta[queryResp.TotalResults-1]) {
+		t.Errorf("wrong updated image meta: got %v want %v", newImageMeta, imageMeta)
+	}
+
+	///////////////////// DELETE IMAGE /////////////////
+
+	req, err = http.NewRequest("DELETE", strings.TrimPrefix(imageMeta.Ref, REF_URL), nil)
+	if err != nil {
+		t.Errorf("failed to prepare delete /image requests: %v", err)
+	}
+	req.Header.Add("Content-Type", writer.FormDataContentType())
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Request recorder init
+	rr = httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect OK request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+
+	// clean image meta from database if required
 	err = DeleteImageData(imageMeta)
 	if err != nil {
 		t.Errorf("failed to delete image data meta: %v", err)
@@ -355,18 +473,6 @@ func TestUploadImage(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to delete image data: %v", err)
 	}
-
-	// Clean file upload
-
-	/*err = deleteTestUser()
-	if err != nil {
-		t.Errorf("failed to delete test user: %v", err)
-	}*/
-}
-
-// TestGetImage attempts to retrieve an image from the database
-func TestGetImage(t *testing.T) {
-
 }
 
 // getTestToken generates a token after creating a test user

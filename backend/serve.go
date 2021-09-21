@@ -56,7 +56,7 @@ type QueryResp struct {
 // these can be expanded to allow for more user defined features like tags, ratings, likes, prices
 type ImageParams struct {
 	Title     string `json:"title"`
-	Shareable bool   `json:"shareable"`
+	Shareable string `json:"shareable"`
 	// Rating Expansion opportunity
 	// Tags     []byte `json:"tags" sql:"tags"` // Expansion opportunity, tagging images
 }
@@ -809,7 +809,7 @@ func updateImage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// decode json message into ImageParams struct
+	// decode json message into string map
 	// string map must be used to account for empty values
 	var newParams map[string]string
 	decoder := json.NewDecoder(req.Body)
