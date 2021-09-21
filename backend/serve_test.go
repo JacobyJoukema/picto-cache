@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -9,6 +10,8 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type RouteTest struct {
@@ -17,6 +20,13 @@ type RouteTest struct {
 	Method   []string
 	Expected []int
 }
+
+var testUser = User{
+	Firstname: "Jacoby",
+	Lastname:  "Joukema",
+	Email:     "user@mail.com",
+}
+var userPass = "pass"
 
 // TestRouting evaluates a number of endpoints without authentication and ensures the correct response headers
 // This is a catch all for routing detailed tests of endpoint edge cases are completed in
@@ -144,22 +154,15 @@ func TestRegister(t *testing.T) {
 		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusBadRequest)
 	}
 
-	user := User{
-		Firstname: "Jacoby",
-		Lastname:  "Joukema",
-		Email:     "user@mail.com",
-	}
-	userPass := "pass"
-
 	// Generate incomplete multipart form data
 	form := new(bytes.Buffer)
 	writer := multipart.NewWriter(form)
 
-	err = writer.WriteField("firstname", user.Firstname)
+	err = writer.WriteField("firstname", testUser.Firstname)
 	if err != nil {
 		t.Errorf("failed to create form field: %v", err)
 	}
-	err = writer.WriteField("lastname", user.Lastname)
+	err = writer.WriteField("lastname", testUser.Lastname)
 	if err != nil {
 		t.Errorf("failed to create form field: %v", err)
 	}
@@ -185,7 +188,7 @@ func TestRegister(t *testing.T) {
 	}
 
 	// Complete request body and retry
-	err = writer.WriteField("email", user.Email)
+	err = writer.WriteField("email", testUser.Email)
 	if err != nil {
 		t.Errorf("failed to create form field: %v", err)
 	}
@@ -217,54 +220,19 @@ func TestRegister(t *testing.T) {
 		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusBadRequest)
 	}
 
-	// Clean database
-	user, err = GetUserData(user.Email)
-	if err != nil {
-		t.Errorf("failed to fetch created image data: %v", err)
-	}
-	err = DeleteUserData(user)
-	if err != nil {
-		t.Errorf("failed to delete created user data: %v", err)
-	}
+	err = deleteTestUser()
 
 }
 
-// testAuth tests the /auth endpoint for a valid and an invalid credential
-func testAuth(t *testing.T) {
-	/*
-		// Configure http message
-		router := configureRoutes()
+// TestAuth tests the /auth endpoint for a valid and an invalid credential
+func TestAuth(t *testing.T) {
 
-		// Request recorder init
-		rr := httptest.NewRecorder()
+	// Create testUser
+	_, err := createTestUser()
+	if err != nil {
+		t.Errorf("failed to create test user: %v", err)
+	}
 
-		// Configure http request
-		req, err := http.NewRequest("GET", "/ping", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// populate db with uid: 0 password: test
-		// Attempt to hash password for storage
-		hashedPass, err := bcrypt.GenerateFromPassword([]byte("test"), bcrypt.DefaultCost)
-		if err != nil {
-			t.Errorf("failed to hash password cleaning user and sending 500: %v", err)
-		}
-
-		pass := UserPassword{
-			Uid:        0,
-			HashedPass: string(hashedPass),
-		}
-
-		// Add hashed password to password table
-		_, err = AddUserPass(pass)
-		if err != nil {
-			t.Errorf("failed to store hashed password cleaning user and sending 500: %v", err)
-		}*/
-}
-
-/*
-func testBody (t *testing.T) {
 	// Configure http message
 	router := configureRoutes()
 
@@ -272,9 +240,124 @@ func testBody (t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Configure http request
-	req, err := http.NewRequest("GET", "/ping", nil)
+	req, err := http.NewRequest("GET", "/auth", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Set valid auth header
+	auth := fmt.Sprintf("%s:%s", testUser.Email, userPass)
+	auth = fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(auth)))
+	req.Header.Add("Authorization", auth)
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect bad request
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusOK)
+	}
+
+	// Configure http message
+	router = configureRoutes()
+
+	// Request recorder init
+	rr = httptest.NewRecorder()
+
+	// Configure http request
+	req, err = http.NewRequest("GET", "/auth", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set invalid auth header
+	auth = fmt.Sprintf("%s:%s", testUser.Email, "badpass")
+	auth = fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(auth)))
+	req.Header.Add("Authorization", auth)
+
+	router.ServeHTTP(rr, req)
+
+	// Compare status codes expect bad request
+	if status := rr.Code; status != http.StatusUnauthorized {
+		t.Errorf("handler returned wrong code: got %v want %v", status, http.StatusUnauthorized)
+	}
+
+	// Cleanup database
+	err = deleteTestUser()
+	if err != nil {
+		t.Errorf("failed to delete test user: %v", err)
+	}
+}
+
+// createTestUser is a helper function that populates the database with the default test user defined above
+func createTestUser() (int, error) {
+
+	uid, err := AddUserData(testUser)
+	if err != nil {
+		return 0, fmt.Errorf("unable to add test user: %v", err)
+	}
+
+	user := testUser
+	user.Uid = uid
+
+	// Attempt to hash password for storage
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(userPass), bcrypt.DefaultCost)
+	if err != nil {
+		DeleteUserData(user)
+		return 0, fmt.Errorf("Failed to hash password cleaning user and sending 500: %v", err)
+	}
+
+	pass := UserPassword{
+		Uid:        user.Uid,
+		HashedPass: string(hashedPass),
+	}
+
+	_, err = AddUserPass(pass)
+	if err != nil {
+		return 0, fmt.Errorf("unable to add test user: %v", err)
+	}
+
+	return int(uid), nil
+}
+
+func deleteTestUser() error {
+	// Clean database
+	user, err := GetUserData(testUser.Email)
+	if err != nil {
+		return fmt.Errorf("failed to fetch created image data: %v", err)
+	}
+	err = DeleteUserData(user)
+	if err != nil {
+		return fmt.Errorf("failed to delete created user data: %v", err)
+	}
+	return nil
+}
+
+/*
+func testBody (t *testing.T) {
+	func TestAuth(t *testing.T) {
+
+	// Create testUser
+	_, err := createTestUser()
+	if err != nil {
+		t.Errorf("failed to create test user: %v", err)
+	}
+
+	// Configure http message
+	router := configureRoutes()
+
+	// Request recorder init
+	rr := httptest.NewRecorder()
+
+	// Configure http request
+	req, err := http.NewRequest("GET", "/auth", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cleanup database
+	err = deleteTestUser()
+	if err != nil {
+		t.Errorf("failed to delete test user: %v", err)
+	}
+}
 }
 */

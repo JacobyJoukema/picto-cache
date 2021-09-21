@@ -310,7 +310,7 @@ func DeleteUserData(userData User) error {
 	return nil
 }
 
-// AddUserMeta inserts a row into the image_meta table and returns the assigned id
+// AddUserPass inserts a hashed password into the password table adn returns the assigned id
 func AddUserPass(pass UserPassword) (int32, error) {
 
 	conn, err := connectSQL()
