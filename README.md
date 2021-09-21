@@ -93,6 +93,7 @@ This project leverages a few dependencies in order to ensure that the software i
 ### Environment Variables
 The following environment variables are used to define system properties for deployments. When left unset server defaults to test parameters
 - SIGNING_KEY - Server side key for encoding jwts
+- REF_URL - Address of url used for image referencing ex. pictocache.jacobyjoukema.com
 - DB_NAME - Name of database
 - DB_USER - Database username for this service
 - DB_PASS - Database password for this user
