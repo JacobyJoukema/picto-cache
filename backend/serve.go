@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	PORT = ":8000"
+	PORT = ":8000" // Default if env var GO_PORT is not defined
 
 	IMAGE_DIR = "image"
 	REF_URL   = "localhost:8000" // Default if REF_URL env variable is not defined
@@ -130,8 +130,14 @@ func serve() error {
 	http.Handle("/", router)
 
 	logger.Info("Initiating HTTP Server")
+
+	// Define port and set to default if environment variable is not set
+	port := PORT
+	if len(os.Getenv("GO_PORT")) > 0 {
+		port = os.Getenv("GO_PORT")
+	}
 	//return http.ListenAndServeTLS(":5050", "./keys/server.crt", "./keys/server.key", router)
-	return (http.ListenAndServe(PORT, router))
+	return (http.ListenAndServe(port, router))
 }
 
 func home(w http.ResponseWriter, req *http.Request) {
