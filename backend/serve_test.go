@@ -285,9 +285,6 @@ func TestAuth(t *testing.T) {
 
 	// Cleanup database
 	err = deleteTestUser()
-	if err != nil {
-		t.Errorf("failed to delete test user: %v", err)
-	}
 }
 
 // TestUImage attempts to complete the full life cycle of images
@@ -297,7 +294,7 @@ func TestAuth(t *testing.T) {
 // Upon successfull query attempt to delete image via DELETE
 // This test requires an image name test.png in the ./test/test.png directory
 func TestImageLifecycle(t *testing.T) {
-	token, uid, err := getTestToken()
+	token, _, err := getTestToken()
 	if err != nil {
 		t.Errorf("failed to generate test user jwt token: %v", err)
 	}
@@ -464,15 +461,7 @@ func TestImageLifecycle(t *testing.T) {
 	}
 
 	// clean image meta from database if required
-	err = DeleteImageData(imageMeta)
-	if err != nil {
-		t.Errorf("failed to delete image data meta: %v", err)
-	}
-
-	err = os.RemoveAll(fmt.Sprintf("./%s/%v", IMAGE_DIR, uid))
-	if err != nil {
-		t.Errorf("failed to delete image data: %v", err)
-	}
+	err = deleteTestUser()
 }
 
 // getTestToken generates a token after creating a test user
@@ -521,7 +510,7 @@ func deleteTestUser() error {
 	// Clean database
 	user, err := GetUserData(testUser.Email)
 	if err != nil {
-		return fmt.Errorf("failed to fetch created image data: %v", err)
+		return fmt.Errorf("failed to fetch created user data: %v", err)
 	}
 	err = DeleteUserData(user)
 	if err != nil {

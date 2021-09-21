@@ -1,26 +1,103 @@
 # Picto Cache
-Picto Cache is a digital photo album and sharing platform built for the Shopify 2022 Winter Internship Application by Jacoby Joukema
+Picto Cache is a digital photo album and sharing API built for the Shopify 2022 Winter Internship Application by Jacoby Joukema
 
 ## Overview
-This system is designed with a heavy focus on the backend api and micro-service development principles. For this reason the frontend is simplistic in nature and is built to demonstrate the backend capabilities not for user experience.
+This system is designed in go with a heavy focus on the backend RESTfull API and micro-service principles. The focus of this project was to design a robust and well designed API complete with industry standard api authentication and validation techniques, for this reason the actual application lacks features but his highly extendable and very easy to interact with through tools detailed below.
 
 There are three ways to interact with this system:
 
-1. Use the online live demo that can be found here (TODO Deploy and link)
-2. Interact with the live demo API via Swagger (TODO Deploy and link) or through apps like postman at (TOD Deploy and link API)
-3. Clone and run on your personal device. Not recommended due to large dependencies for PostgreSQL and Yarn for the front end
+1. Use the online [swaggerlink](SwaggerDocs) to interact with the live demo
+2. Interact with the live demo API at [pictocache.jacobyjoukema.com](pictocache.jacobyjoukema.com) with an http tool of your preference
+3. Use the shared Postman workspace to interact with the live demo or a local instance: [![Run in Postman](https://run.pstmn.io/button.svg)](https://app.getpostman.com/run-collection/9043989-40ff35a4-5f77-47d8-a108-992eff445614?action=collection%2Ffork&collection-url=entityId%3D9043989-40ff35a4-5f77-47d8-a108-992eff445614%26entityType%3Dcollection)
+4. Clone and run on your personal device. Not recommended due development requirements such as Go and PostgeSQL
 
 ## Design
+Picto Cache is a RESTfull API developed in Go. It is highly robust and features password hashing, token authentication, image data/meta storage, and user permissions. Picto Cache does not require any runtime online dependencies or services therefore it can be deployed on LAN for highly confidential information management.
 
-## Project Dependencies
+### API
+The api is documented in detail at [swaggerlink](SwaggerDocs). It was designed to be stateless and handle individual requests independently. This allows for a highly scalable API compatible with deployment management systems like Kubernetes if required.
+
+### Data Model
+All metadata is stored via PostgreSQL enabling highly efficient data retrieval and storage. Further, a SQL datastore allows for the scaling of response handlers without requiring the scaling of database resources. All interaction with the database is handled by [./backend/store.go](backend/store.go) using [https://pkg.go.dev/github.com/inflowml/structql](StructQl) - A Go packaged Co-designed by me that simplifies the management of SQL databases using struct tags in go.
+
+#### Tables
+The app instantiates and manages three SQL tables summarized by their [https://pkg.go.dev/github.com/inflowml/structql](StructQl) tags below
+
+1. image_meta
+```go
+type Image struct {
+	Id        int32  `json:"id" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
+	Uid       int32  `json:"uid" sql:"uid"`
+	Title     string `json:"title" sql:"title"`
+	Ref       string `json:"ref" sql:"ref"`
+	Size      int32  `json:"size" sql:"size"`
+	Encoding  string `json:"encoding" sql:"encoding"`
+	Shareable bool   `json:"shareable" sql:"shareable"`
+}
+```
+2. user_meta
+```go
+type User struct {
+	Uid       int32  `json:"uid" sql:"id" typ:"SERIAL" opt:"PRIMARY KEY"`
+	Firstname string `json:"firstname" sql:"firstname"`
+	Lastname  string `json:"lastname" sql:"lastname"`
+	Email     string `json:"email" sql:"email"`
+}
+```
+3. user_pass
+```go
+type UserPassword struct {
+	Uid        int32  `sql:"id" opt:"PRIMARY KEY"` // Corresponds to User Uid
+	HashedPass string `sql:"hashed_pass"`
+}
+```
+
+### Testing
+
+#### Methodology
+In order to fully test this system a combination of unit and manual tests are required. It is impossible to get full unit testing coverage because networking systems are often unpredictable. For example the unit tests need a PostgreSQL test database running to properly evaluate the system effectiveness, therefore it is non-trivial to unit test the availability of the database without adding an additional testing layer on top of the system. Futher, the system was designed to sanitize incoming data however users may still attempt to circumvent these through a number of methods that can't be predicted and therefore full test coverage is very difficult
+
+#### Unit Testing
+All endpoints are tested for various valid and invalid calls through serve_test.go. This file also evaluates the effectiveness of store.go as those functions are used within serve.go and are internal facing. To run unit tests navigate to [./backend](/backend) and run go test.
+
+#### Manual Testing
+Manual testing is conducted through a number of tools including Swagger, Postman, and network browsers. See the API section for more details on manually testing and using the software.
+
+## Installation
+
+### Project Dependencies
 This project leverages a few dependencies in order to ensure that the software is robust and well documented
 
-### API Dependencies
 1. [https://golang.org/doc/install](Go) (Golang) - REQUIRED - Follow instructions on the official site to install for your system
 2. [https://www.postgresql.org/download/](PostgreSQL) - REQUIRED - Follow instructions on the official site or [/devops/psql/psql-install.sh](/devops/psql/psql-install.sh) to install on Ubuntu.
-3. [https://gist.github.com/denji/12b3a568f092ab951456](SSLKey) - REQUIRED - Follow instructions linked to generate key and certification and place in [/backend/keys](/backend/keys) directory order to enable TLS for proper authentication techniques.
 3. [https://swagger.io/docs/open-source-tools/swagger-ui/usage/installation/](Swagger) - Recommended - Follow instructions on official site, used for api documentation and manual testing of endpoints.
 4. [https://www.postman.com/](Postman) - Recommended - Follow instructions on official site, used for manual testing of endpoints.
+
+### Step by Step (Unix Comd Line)
+1. Clone git repo `git clone https://github.com/JacobyJoukema/picto-cache.git`
+2. Set up PostgreSQL testing database
+```bash
+    cd devops/psql
+    ./psql-run
+```
+3. Run unit tests
+```bash
+    cd ../../backend
+    go test .
+```
+4. Run go server
+```bash
+    go run .
+```
+
+### Environment Variables
+The following environment variables are used to define system properties for deployments. When left unset server defaults to test parameters
+- SIGNING_KEY - Server side key for encoding jwts
+- DB_NAME - Name of database
+- DB_USER - Database username for this service
+- DB_PASS - Database password for this user
+- DB_HOST - Database host
+- DB_PORT - Database port
 
 ## References
 The following references were utilized in order to develop key components of this program
